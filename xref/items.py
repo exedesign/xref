@@ -180,6 +180,60 @@ class XRefItemMixin(SelectableMixin):
                 and not self.scene().active_mode is None):
             self.bring_to_front()
 
+    # -- Media frame locking (videos and PDFs) -----------------------------
+
+    def is_frame_locked(self):
+        """Whether a single click pinned the shown frame or page."""
+
+        return getattr(self, '_frame_locked', False)
+
+    def paint_lock_indicator(self, painter):
+        """A small padlock in the corner of a locked video or PDF."""
+
+        rect = self.bounding_rect_unselected()
+        size = min(self.fixed_length_for_viewport(16),
+                   max(4.0, rect.width() * 0.09))
+        margin = size * 0.5
+        icon = QtCore.QRectF(rect.right() - size - margin,
+                             rect.top() + margin, size, size)
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(0, 0, 0, 150))
+        painter.drawRoundedRect(icon, size * 0.25, size * 0.25)
+        shackle = QtGui.QPen(QtGui.QColor(255, 255, 255))
+        shackle.setWidthF(max(0.6, size * 0.13))
+        shackle.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(shackle)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawArc(
+            QtCore.QRectF(icon.left() + size * 0.28,
+                          icon.top() + size * 0.2,
+                          size * 0.44, size * 0.52),
+            0, 180 * 16)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(255, 255, 255))
+        painter.drawRoundedRect(
+            QtCore.QRectF(icon.left() + size * 0.24, icon.center().y(),
+                          size * 0.52, size * 0.36),
+            size * 0.08, size * 0.08)
+        painter.restore()
+
+    def was_plain_click(self, event):
+        """Whether the release belongs to a click that didn't drag or scale.
+
+        A single click on a video or PDF locks the shown frame; dragging or
+        transforming the item must not.
+        """
+
+        press = self._click_pos
+        self._click_pos = None
+        if press is None or self.active_mode is not None:
+            return False
+        pos, item_pos = press
+        return (event.button() == Qt.MouseButton.LeftButton
+                and self.pos() == item_pos
+                and (event.pos() - pos).manhattanLength() <= 4)
+
     def update_from_data(self, **kwargs):
         self.save_id = kwargs.get('save_id', self.save_id)
         self.setPos(kwargs.get('x', self.pos().x()),
@@ -977,7 +1031,9 @@ class XRefPdfItem(XRefItemMixin, QtWidgets.QGraphicsItem):
 
     Like videos, moving the mouse horizontally over the document flips
     through the pages and the page the pointer last rested on is
-    remembered (and saved with the board).
+    remembered (and saved with the board). A single click pins the page
+    under the pointer so hovering no longer flips through the document;
+    the next single click resumes browsing.
     """
 
     TYPE = 'pdf'
@@ -1014,6 +1070,9 @@ class XRefPdfItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             self._page_cache[0] = self._frame
         self._current_page = max(0, int(page or 0))
         self._display_page = self._current_page
+        self._frame_locked = False
+        self._click_pos = None
+        self._refresh_tooltip()
         logger.debug(f'Initialized {self}')
 
     def __del__(self):
@@ -1236,12 +1295,43 @@ class XRefPdfItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         return left, right
 
     def _controls_visible(self):
-        return self._hovered or self._display_page != self._current_page
+        return (self._hovered or self._frame_locked
+                or self._display_page != self._current_page)
 
     def is_control_hit(self, scene_pos):
         local = self.mapFromScene(scene_pos)
         left, right = self._arrow_rects()
         return left.contains(local) or right.contains(local)
+
+    def toggle_lock(self, pos=None):
+        """Pins the page under the pointer; the next click browses again.
+
+        While a page is locked, moving the mouse over the document no
+        longer flips through the pages.
+        """
+
+        if pos is not None and self._pages:
+            self.set_page(self._page_at_x(pos.x()))
+        self._frame_locked = not self._frame_locked
+        self._refresh_tooltip()
+        self.update()
+        return self._frame_locked
+
+    def _refresh_tooltip(self):
+        if self._frame_locked:
+            self.setToolTip(tr('Click to browse the pages again'))
+        else:
+            self.setToolTip(tr('Click to lock this page'))
+
+    def _playhead_x(self):
+        """The x position of the playhead, or None when it is hidden."""
+
+        if self._frame_locked and self._pages:
+            return (self._current_page + 0.5) * self._width / self._pages
+        if (self._hovered and self._hover_pos
+                and not self._controls_rect().contains(self._hover_pos)):
+            return max(0, min(self._width, self._hover_pos.x()))
+        return None
 
     # -- Events ------------------------------------------------------------
 
@@ -1272,7 +1362,7 @@ class XRefPdfItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             self.unset_cursor()
         scene = self.scene()
         dragging = scene is not None and scene.active_mode is not None
-        if not dragging and self._pages > 0:
+        if not dragging and self._pages > 0 and not self._frame_locked:
             # Hover scrubbing: the horizontal position picks the page and
             # that page stays remembered when the pointer leaves
             page = self._page_at_x(pos.x())
@@ -1300,6 +1390,14 @@ class XRefPdfItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             event.accept()
             return
         super().mousePressEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._click_pos = (event.pos(), self.pos())
+
+    def mouseReleaseEvent(self, event):
+        click = self.was_plain_click(event)
+        super().mouseReleaseEvent(event)
+        if click and self.bounding_rect_unselected().contains(event.pos()):
+            self.toggle_lock(event.pos())
 
     def mouseDoubleClickEvent(self, event):
         if self.is_control_hit(event.scenePos()):
@@ -1318,15 +1416,17 @@ class XRefPdfItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         else:
             self._paint_placeholder(painter, rect)
 
-        if (self._hovered and self._hover_pos
-                and not self._controls_rect().contains(self._hover_pos)):
+        playhead = self._playhead_x()
+        if playhead is not None:
             pen = QtGui.QPen(QtGui.QColor(255, 60, 60))
             pen.setCosmetic(True)
             pen.setWidth(2)
             painter.setPen(pen)
-            x = max(0, min(self._width, self._hover_pos.x()))
-            painter.drawLine(QtCore.QPointF(x, 0),
-                             QtCore.QPointF(x, self._height))
+            painter.drawLine(QtCore.QPointF(playhead, 0),
+                             QtCore.QPointF(playhead, self._height))
+
+        if self._frame_locked:
+            self.paint_lock_indicator(painter)
 
         if self._controls_visible() and self._pages > 0:
             self._paint_controls(painter)
@@ -1577,6 +1677,8 @@ class XRefVideoItem(XRefItemMixin, QtWidgets.QGraphicsItem):
       stopped) is shown as a still preview.
     * Moving the mouse horizontally over the video scrubs through it,
       similar to the hover scrub in DaVinci Resolve's media pool.
+    * A single click locks the frame under the pointer, so moving the
+      mouse no longer scrubs; the next single click browses again.
     * When hovered, media player controls (play/pause, seek bar, time)
       appear at the bottom.
     * The preview stays pinned to the position playback was stopped at;
@@ -1624,12 +1726,15 @@ class XRefVideoItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self._playing = False
         self._hovered = False
         self._hover_pos = None
+        self._frame_locked = False
+        self._click_pos = None
         # Volume/min/max controls state
         self._volume_dragging = False
         # Audio state (applied when the audio output is created)
         self._volume = 1.0
         self._muted = False
         self._temp_video_file = None
+        self._refresh_tooltip()
         logger.debug(f'Initialized {self}')
 
     def __del__(self):
@@ -2062,7 +2167,7 @@ class XRefVideoItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         # The controls stay visible for the selected item as well, so they
         # are easy to find and don't depend on a fragile hover state
         return (self._hovered or self._playing or self._volume_dragging
-                or self.isSelected())
+                or self._frame_locked or self.isSelected())
 
     def _controls_rect(self):
         margin = min(self._ui(self.CONTROLS_MARGIN), self._width * 0.05)
@@ -2167,6 +2272,41 @@ class XRefVideoItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         ratio = max(0.0, min(1.0, x / max(1, self._width)))
         self.seek_preview(ratio * (duration - 1), pin=pin)
 
+    def toggle_lock(self, pos=None):
+        """Pins the frame under the pointer; the next click browses again.
+
+        While a frame is locked, moving the mouse over the video no longer
+        scrubs through it.
+        """
+
+        if pos is not None:
+            self._scrub_to(pos.x())
+        self._frame_locked = not self._frame_locked
+        self._refresh_tooltip()
+        self.update()
+        return self._frame_locked
+
+    def _refresh_tooltip(self):
+        if self._frame_locked:
+            self.setToolTip(tr('Click to browse the frames again'))
+        else:
+            self.setToolTip(tr('Click to lock this frame'))
+
+    def _playhead_x(self):
+        """The x position of the playhead, or None when it is hidden."""
+
+        if self._frame_locked:
+            duration = self._duration()
+            if duration <= 0:
+                return None
+            ratio = self._current_position / max(1, duration)
+            return max(0.0, min(self._width, ratio * self._width))
+        if (self._hovered and self._hover_pos and not self._playing
+                and self._has_source()
+                and not self._controls_rect().contains(self._hover_pos)):
+            return max(0.0, min(self._width, self._hover_pos.x()))
+        return None
+
     def hoverEnterEvent(self, event):
         self._hovered = True
         self.update()
@@ -2191,6 +2331,7 @@ class XRefVideoItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         scene = self.scene()
         dragging = scene is not None and scene.active_mode is not None
         if (not self._playing
+                and not self._frame_locked
                 and not dragging
                 and self.bounding_rect_unselected().contains(pos)):
             # Hover scrubbing: the horizontal mouse position becomes the
@@ -2229,13 +2370,9 @@ class XRefVideoItem(XRefItemMixin, QtWidgets.QGraphicsItem):
                 self._volume_from_x(pos.x())
             event.accept()
             return
-        if (event.button() == Qt.MouseButton.LeftButton
-                and not self._playing
-                and self.bounding_rect_unselected().contains(event.pos())):
-            # Clicking the video remembers that frame too (the click still
-            # selects/moves the item as usual)
-            self._scrub_to(event.pos().x())
         super().mousePressEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._click_pos = (event.pos(), self.pos())
 
     def mouseMoveEvent(self, event):
         if self._volume_dragging:
@@ -2249,7 +2386,11 @@ class XRefVideoItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             self._volume_dragging = False
             event.accept()
             return
+        click = self.was_plain_click(event)
         super().mouseReleaseEvent(event)
+        if (click and not self._playing
+                and self.bounding_rect_unselected().contains(event.pos())):
+            self.toggle_lock(event.pos())
 
     def mouseDoubleClickEvent(self, event):
         if self.is_control_hit(event.scenePos()):
@@ -2411,17 +2552,17 @@ class XRefVideoItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         else:
             self._paint_placeholder(painter, rect)
 
-        if (self._hovered and not self._playing and self._hover_pos
-                and self._has_source()
-                and not self._controls_rect().contains(self._hover_pos)):
-            # Scrub playhead
+        playhead = self._playhead_x()
+        if playhead is not None:
             pen = QtGui.QPen(QtGui.QColor(255, 60, 60))
             pen.setCosmetic(True)
             pen.setWidth(2)
             painter.setPen(pen)
-            x = max(0, min(self._width, self._hover_pos.x()))
-            painter.drawLine(QtCore.QPointF(x, 0),
-                             QtCore.QPointF(x, self._height))
+            painter.drawLine(QtCore.QPointF(playhead, 0),
+                             QtCore.QPointF(playhead, self._height))
+
+        if self._frame_locked:
+            self.paint_lock_indicator(painter)
 
         if self._controls_visible() and self._has_source():
             self._paint_controls(painter)

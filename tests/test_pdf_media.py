@@ -147,6 +147,50 @@ def test_hover_flips_pages_and_remembers_the_last_one(view, pdf_item,
     assert item._display_page == PAGES - 1
 
 
+def test_single_click_locks_the_page_and_the_next_click_browses(
+        view, pdf_item, qapp):
+    item = hovering_view(view, pdf_item)
+    T = QtCore.QEvent.Type
+    mid_y = 50 + item.size()[1] / 2
+    middle = QtCore.QPointF(50 + item.size()[0] * 0.5, mid_y)
+
+    send_mouse(view, T.MouseButtonPress, middle)
+    send_mouse(view, T.MouseButtonRelease, middle)
+    qapp.processEvents()
+    assert item.is_frame_locked()
+    locked = item.current_page
+    assert 2 <= locked <= 3
+
+    # While locked, hovering no longer flips through the pages
+    send_mouse(view, T.MouseMove,
+               QtCore.QPointF(50 + item.size()[0] * 0.95, mid_y),
+               button=Btn.NoButton, buttons=Btn.NoButton)
+    qapp.processEvents()
+    assert item.current_page == locked
+    assert item._display_page == locked
+
+    # A second single click resumes browsing at the pointer position
+    end = QtCore.QPointF(50 + item.size()[0] * 0.95, mid_y)
+    send_mouse(view, T.MouseButtonPress, end)
+    send_mouse(view, T.MouseButtonRelease, end)
+    qapp.processEvents()
+    assert not item.is_frame_locked()
+    assert item.current_page == PAGES - 1
+
+
+def test_dragging_a_pdf_does_not_lock_it(view, pdf_item, qapp):
+    item = hovering_view(view, pdf_item)
+    T = QtCore.QEvent.Type
+    start = QtCore.QPointF(50 + item.size()[0] * 0.5,
+                           50 + item.size()[1] * 0.5)
+    send_mouse(view, T.MouseButtonPress, start)
+    send_mouse(view, T.MouseMove, start + QtCore.QPointF(120, 90),
+               buttons=Btn.LeftButton)
+    send_mouse(view, T.MouseButtonRelease, start + QtCore.QPointF(120, 90))
+    qapp.processEvents()
+    assert not item.is_frame_locked()
+
+
 def test_page_can_be_set_directly_and_is_clamped(pdf_item):
     pdf_item.set_page(3)
     assert pdf_item.current_page == 3

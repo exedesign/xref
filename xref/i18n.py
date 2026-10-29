@@ -72,6 +72,12 @@ TRANSLATIONS = {
 '&Images...': '&Görseller...',
         '&Video...': '&Video...',
         '&Play Video': 'Videoyu &Oynat',
+        'Click to lock this frame': 'Bu kareyi kilitlemek için tıklayın',
+        'Click to browse the frames again':
+            'Kareler arasında gezinmek için tekrar tıklayın',
+        'Click to lock this page': 'Bu sayfayı kilitlemek için tıklayın',
+        'Click to browse the pages again':
+            'Sayfalar arasında gezinmek için tekrar tıklayın',
         '&Draw (Pen Mode)': '&Çiz (Kalem Modu)',
         'Pen &Colour...': 'Kalem &Rengi...',
         'Brush &Thin': 'Fırça &İnce',

@@ -36,13 +36,17 @@ Added
   dragging & dropping video files). Videos are stored in bee files
   as their original file and can be played back directly in the scene.
 * Added support for multi-page PDFs (Insert -> Images / PDFs, or by
-  dragging & dropping PDF files). PDFs work like videos: hovering over a page flips
-  through the pages (the red vertical playhead on the progress bar shows
-  and sets the page), the arrows and mouse wheel change the page, and the
-  page you stopped on is the one shown later, also after saving and
-  reloading the scene. The original PDF is stored in the scene (and sent
-  to the other machines in a collaboration session), so every page is
+  dragging & dropping PDF files). PDFs work like videos: hovering over a
+  page flips through the pages (the red vertical playhead on the progress
+  bar shows and sets the page), the arrows and mouse wheel change the page,
+  and the page you stopped on is the one shown later, also after saving and
+  reloading the scene. The original PDF is stored in the scene (and sent to
+  the other machines in a collaboration session), so every page is
   rendered at full quality.
+* Videos and PDFs: a single left click now pins the frame or page under
+  the pointer (a small padlock in the corner shows it), so moving the
+  mouse over the item no longer scrubs or flips through it. The next
+  single click starts browsing again; dragging the item keeps its frame.
 * Dragging selected media out of the window now starts a normal OS
   drag & drop, so media can be copied into other applications or
   folders (images as files or image data, videos as files, PDFs as

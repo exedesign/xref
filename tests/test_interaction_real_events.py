@@ -348,6 +348,54 @@ def test_video_click_remembers_frame(shown_view, videofilename, qapp):
     item.release_player()
 
 
+def test_video_single_click_locks_the_frame_and_the_next_click_browses(
+        shown_view, videofilename, qapp):
+    view = shown_view
+    item, _ = make_video(view, videofilename, qapp)
+    T = QtCore.QEvent.Type
+    assert wait_until(qapp, lambda: item._player is not None)
+
+    middle = QtCore.QPointF(100, 100)
+    send_mouse(view, T.MouseButtonPress, middle)
+    send_mouse(view, T.MouseButtonRelease, middle)
+    qapp.processEvents()
+    assert item.is_frame_locked()
+    locked = item._current_position
+    assert 800 <= locked <= 1200
+
+    # While locked, hovering no longer scrubs through the video
+    send_mouse(view, T.MouseMove, QtCore.QPointF(190, 100),
+               button=Btn.NoButton, buttons=Btn.NoButton)
+    qapp.processEvents()
+    assert item._current_position == locked
+    assert item._display_position == locked
+
+    # A second single click resumes browsing at the pointer position
+    # (not at the very edge, where the item's flip handle sits)
+    end = QtCore.QPointF(160, 100)
+    send_mouse(view, T.MouseButtonPress, end)
+    send_mouse(view, T.MouseButtonRelease, end)
+    qapp.processEvents()
+    assert not item.is_frame_locked()
+    assert item._current_position > 1500
+    item.release_player()
+
+
+def test_video_drag_does_not_lock_the_frame(shown_view, videofilename, qapp):
+    view = shown_view
+    item, _ = make_video(view, videofilename, qapp)
+    T = QtCore.QEvent.Type
+    assert wait_until(qapp, lambda: item._player is not None)
+    start = QtCore.QPointF(100, 100)
+    send_mouse(view, T.MouseButtonPress, start)
+    send_mouse(view, T.MouseMove, start + QtCore.QPointF(150, 120),
+               buttons=Btn.LeftButton)
+    send_mouse(view, T.MouseButtonRelease, start + QtCore.QPointF(150, 120))
+    qapp.processEvents()
+    assert not item.is_frame_locked()
+    item.release_player()
+
+
 def test_video_remembered_position_survives_reload(shown_view, videofilename,
                                                    qapp, tmp_path):
     from xref.fileio import SQLiteIO
