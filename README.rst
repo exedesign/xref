@@ -1,3 +1,8 @@
+.. image:: images/xref-logo.png
+   :alt: XRef
+   :width: 220px
+   :align: center
+
 XRef — A Reference Board for Images, Videos and Ideas
 ======================================================
 

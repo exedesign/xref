@@ -26,6 +26,7 @@ from xref.widgets import (  # noqa: F401
     controls,
     settings,
     welcome_overlay,
+    window_buttons,
     color_gamut,
 )
 

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch, mock_open
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
-from xref import commands, widgets
+from xref import commands, constants, widgets
 from xref.actions import actions
 from xref.config import logfile_name
 from xref.items import XRefPixmapItem, XRefTextItem
@@ -1172,6 +1172,15 @@ def test_window_with_titlebar_has_no_resize_handles(view):
     view.parent.resize(400, 300)
     view.on_action_show_titlebar(True)
     assert view.resize_edges_at(QtCore.QPoint(1, 150)) is None
+
+
+@patch('PyQt6.QtWidgets.QMessageBox.about')
+def test_on_action_about_shows_the_logo(about_mock, view):
+    view.on_action_about()
+    assert about_mock.called
+    title, text = about_mock.call_args[0][1:]
+    assert 'logo-horizontal.png' in text
+    assert constants.APPNAME in title
 
 
 def test_on_action_show_menubar(view):

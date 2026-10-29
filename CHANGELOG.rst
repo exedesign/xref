@@ -51,6 +51,11 @@ Added
   in Settings -> Miscellaneous -> Window Edge Move Area). Ctrl+Alt+drag and
   Ctrl+M still move the window. The title bar and the always-on-top state
   are remembered between sessions.
+* The window has minimize, full screen and close buttons in the top right
+  corner. They appear when the pointer rests there for a moment (three
+  seconds by default, configurable in Settings -> Miscellaneous -> Window
+  Buttons Delay) and fade away again when the pointer leaves. The close
+  button asks before unsaved changes are discarded.
 * The canvas no longer slides when the window is resized, maximised or
   switched to full screen: the middle of the view stays where it was, and
   while a window edge is dragged the point under the pointer stays under

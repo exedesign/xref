@@ -50,6 +50,21 @@ def test_recent_files_view_size_hint(qapp):
     assert files_view.sizeHint() == QtCore.QSize(53, 25)
 
 
+def test_recent_files_view_size_hint_without_files(qapp):
+    parent = QtWidgets.QMainWindow()
+    files_view = RecentFilesView(parent, None)
+    files_view.update_files([])
+    assert files_view.sizeHint() == QtCore.QSize(2, 0)
+
+
+def test_welcome_overlay_shows_the_logo(qapp):
+    parent = QtWidgets.QMainWindow()
+    view = XRefGraphicsView(qapp, parent)
+    overlay = WelcomeOverlay(view)
+    assert not overlay.logo.pixmap().isNull()
+    assert overlay.layout.indexOf(overlay.center_widget) > 0
+
+
 def test_recent_files_view_on_click(qapp):
     parent = QtWidgets.QMainWindow()
     view = XRefGraphicsView(qapp, parent)

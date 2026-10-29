@@ -5,7 +5,7 @@ Comment=A reference board for images, videos and ideas
 Terminal=false
 Exec=/home/yourname/path/to/XRef-0.4.0-dev.appimage
 Type=Application
-Icon=/home/yourname/path/to/logo.png
+Icon=xref
 
 MimeType=application/x-xref;
 Categories=Qt;KDE;Graphics;

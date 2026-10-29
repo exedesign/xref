@@ -165,6 +165,11 @@ class XRefSettings(QtCore.QSettings):
             'cast': int,
             'validate': lambda x: 0 <= x <= 60,
         },
+        'View/window_buttons_delay': {
+            'default': 3,
+            'cast': int,
+            'validate': lambda x: 0 <= x <= 30,
+        },
     }
 
     def __init__(self):

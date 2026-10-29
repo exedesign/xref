@@ -23,6 +23,7 @@ from PyQt6.QtCore import Qt
 
 from xref.actions import ActionsMixin, actions
 from xref import collab, i18n
+from xref.assets import XRefAssets
 from xref import commands
 from xref.config import CommandlineArgs, XRefSettings, KeyboardSettings
 from xref import constants
@@ -930,10 +931,13 @@ class XRefGraphicsView(MainControlsMixin,
         widgets.HelpDialog(self)
 
     def on_action_about(self):
+        logo = XRefAssets().PATH.joinpath('logo-horizontal.png')
+        logo_url = QtCore.QUrl.fromLocalFile(str(logo)).toString()
         QtWidgets.QMessageBox.about(
             self,
             tr('About {app}', app=constants.APPNAME),
-            (f'<h2>{constants.APPNAME} {constants.VERSION}</h2>'
+            (f'<p><img src="{logo_url}" width="320"></p>'
+             f'<h2>{constants.APPNAME} {constants.VERSION}</h2>'
              f'<p>{constants.APPNAME_FULL}</p>'
              f'<p>{constants.COPYRIGHT}</p>'
              f'<p><a href="{constants.WEBSITE}">'
@@ -1351,6 +1355,9 @@ class XRefGraphicsView(MainControlsMixin,
         overlay = getattr(self, 'welcome_overlay', None)
         if overlay is not None:
             overlay.retranslate()
+        window_buttons = getattr(self.parent, 'window_buttons', None)
+        if window_buttons is not None:
+            window_buttons.retranslate()
 
     # -- Shared board sessions ---------------------------------------------
 

@@ -28,6 +28,7 @@ from xref.assets import XRefAssets
 from xref.config import CommandlineArgs, XRefSettings, logfile_name
 from xref.utils import create_palette_from_dict
 from xref.view import XRefGraphicsView
+from xref.widgets.window_buttons import WindowButtons
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,8 @@ class XRefMainWindow(QtWidgets.QMainWindow):
             if not self.restoreGeometry(geom):
                 self.resize(default_window_size)
         self.setCentralWidget(self.view)
+        # Minimize/full screen/close buttons in the top right corner
+        self.window_buttons = WindowButtons(self)
         self.show()
 
     def closeEvent(self, event):

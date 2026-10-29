@@ -19,6 +19,7 @@ import os.path
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
+from xref.assets import XRefAssets
 from xref.config import XRefSettings
 from xref.i18n import tr
 from xref.main_controls import MainControlsMixin
@@ -68,7 +69,10 @@ class RecentFilesView(QtWidgets.QListView):
         size = QtCore.QSize()
         height = sum(
             (self.sizeHintForRow(i) + 2) for i in range(len(self.files)))
-        width = max(self.sizeHintForColumn(i) for i in range(len(self.files)))
+        width = 0
+        if self.files:
+            width = max(
+                self.sizeHintForColumn(i) for i in range(len(self.files)))
         size.setHeight(height)
         size.setWidth(width + 2)
         return size
@@ -121,9 +125,23 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
         self.label = QtWidgets.QLabel(self.txt, self)
         self.label.setAlignment(Qt.AlignmentFlag.AlignVCenter
                                 | Qt.AlignmentFlag.AlignCenter)
+
+        # Branding
+        self.logo = QtWidgets.QLabel(self)
+        self.logo.setPixmap(
+            XRefAssets().logo_pixmap('logo-vertical.png', 180))
+        self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.center_widget = QtWidgets.QWidget(self)
+        center_layout = QtWidgets.QVBoxLayout()
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.addWidget(self.logo)
+        center_layout.addWidget(self.label)
+        self.center_widget.setLayout(center_layout)
+
         self.layout = QtWidgets.QHBoxLayout()
         self.layout.addStretch(50)
-        self.layout.addWidget(self.label)
+        self.layout.addWidget(self.center_widget)
         self.layout.addStretch(50)
         self.setLayout(self.layout)
 
@@ -143,14 +161,14 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
     def disable_mouse_events(self):
         self.files_view.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.label.setAttribute(
+        self.center_widget.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
     def enable_mouse_events(self):
         self.files_view.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents,
             on=False)
-        self.label.setAttribute(
+        self.center_widget.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents,
             on=False)
 

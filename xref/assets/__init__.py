@@ -18,7 +18,8 @@
 from importlib.resources import files as rsc_files
 import logging
 
-from PyQt6 import QtGui, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6.QtCore import Qt
 
 
 logger = logging.getLogger(__name__)
@@ -34,17 +35,48 @@ class XRefAssets:
             cls._instance.on_new()
         return cls._instance
 
+    #: The sizes of the application icon that ship with XRef
+    ICON_SIZES = (16, 32, 180, 192, 512, 1024)
+
     def on_new(self):
         logger.debug(f'Assets path: {self.PATH}')
 
-        self.logo = QtGui.QIcon(str(self.PATH.joinpath('logo.png')))
-        assert self.logo.isNull() is False
+        self.logo = self.create_logo()
+        self.logo_vertical = self.create_pixmap('logo-vertical.png')
+        self.logo_horizontal = self.create_pixmap('logo-horizontal.png')
         self.cursor_rotate = self.cursor_from_image(
             'cursor_rotate.png', (20, 20))
         self.cursor_flip_h = self.cursor_from_image(
             'cursor_flip_h.png', (20, 20))
         self.cursor_flip_v = self.cursor_from_image(
             'cursor_flip_v.png', (20, 20))
+
+    def create_logo(self):
+        """The application icon in every size that ships with XRef."""
+
+        icon = QtGui.QIcon()
+        for size in self.ICON_SIZES:
+            path = self.PATH.joinpath(f'icon-{size}.png')
+            if path.is_file():
+                icon.addFile(str(path), QtCore.QSize(size, size))
+        vector = self.PATH.joinpath('icon.svg')
+        if vector.is_file():
+            icon.addFile(str(vector))
+        assert icon.isNull() is False
+        return icon
+
+    def create_pixmap(self, filename):
+        pixmap = QtGui.QPixmap(str(self.PATH.joinpath(filename)))
+        assert pixmap.isNull() is False
+        return pixmap
+
+    def logo_pixmap(self, filename, width):
+        """A logo scaled to the given width (for dialogs and overlays)."""
+
+        pixmap = QtGui.QPixmap(str(self.PATH.joinpath(filename)))
+        assert pixmap.isNull() is False
+        return pixmap.scaledToWidth(
+            width, Qt.TransformationMode.SmoothTransformation)
 
     def cursor_from_image(self, filename, hotspot):
         app = QtWidgets.QApplication.instance()

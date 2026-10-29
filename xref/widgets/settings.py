@@ -213,6 +213,16 @@ class LanguageWidget(RadioGroup):
         (code, name, name) for code, name in i18n.LANGUAGES.items())
 
 
+class WindowButtonsDelayWidget(IntegerGroup):
+    TITLE = 'Window Buttons Delay:'
+    HELPTEXT = ('How long the pointer has to rest in the top right corner '
+                '(in seconds) before the minimize, full screen and close '
+                'buttons appear. Set to 0 to show them immediately.')
+    KEY = 'View/window_buttons_delay'
+    MIN = 0
+    MAX = 30
+
+
 class WindowMoveMarginWidget(IntegerGroup):
     TITLE = 'Window Edge Move Area:'
     HELPTEXT = ('The frameless window has no title bar. Drag this many pixels '
@@ -254,6 +264,7 @@ class SettingsDialog(QtWidgets.QDialog):
         misc_layout.addWidget(AutosaveWidget(), 2, 0)
         misc_layout.addWidget(AutosaveIntervalWidget(), 2, 1)
         misc_layout.addWidget(WindowMoveMarginWidget(), 3, 0)
+        misc_layout.addWidget(WindowButtonsDelayWidget(), 3, 1)
         tabs.addTab(misc, tr('&Miscellaneous'))
 
         # Images & Items

@@ -22,7 +22,10 @@ a = Analysis(
     binaries=[],
     datas=[
         (join('xref', 'documentation'), join('xref', 'documentation')),
-        (join('xref', 'assets', '*.png'), join('xref', 'assets'))],
+        (join('xref', 'assets', '*.png'), join('xref', 'assets')),
+        (join('xref', 'assets', '*.svg'), join('xref', 'assets')),
+        (join('xref', 'assets', '*.ico'), join('xref', 'assets')),
+        (join('xref', 'assets', '*.icns'), join('xref', 'assets'))],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -384,6 +384,16 @@ TRANSLATIONS = {
         'Set to 0 for no limitation.':
             'Yüklenebilecek en büyük görsel boyutu (megabayt). '
             'Sınırsız için 0 girin.',
+        'Window Buttons Delay:': 'Pencere Düğmeleri Gecikmesi:',
+        'How long the pointer has to rest in the top right corner '
+        '(in seconds) before the minimize, full screen and close '
+        'buttons appear. Set to 0 to show them immediately.':
+            'İmleç sağ üst köşede kaç saniye durduktan sonra küçültme, '
+            'tam ekran ve kapatma düğmelerinin görüneceği süre. 0 yazarsanız '
+            'düğmeler hemen görünür.',
+        'Minimize': 'Küçült',
+        'Full screen': 'Tam ekran',
+        'Close window': 'Pencereyi kapat',
         'Window Edge Move Area:': 'Pencere Kenarı Taşıma Alanı:',
         'The frameless window has no title bar. Drag this many pixels '
         'inside the window edge to move it; the outermost pixels '
