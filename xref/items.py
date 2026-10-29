@@ -247,7 +247,8 @@ class XRefItemMixin(SelectableMixin):
         text = os.path.basename(text)
         settings = getattr(self, 'settings', None)
         if settings is None:
-            return
+            from xref.config import XRefSettings
+            settings = self.settings = XRefSettings()
         try:
             show = settings.valueOrDefault('Items/show_media_titles')
         except Exception:  # noqa: BLE001 - settings not ready

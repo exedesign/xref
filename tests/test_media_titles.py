@@ -99,11 +99,47 @@ def test_title_shows_only_the_file_name_not_the_path(view, qapp):
     assert 10 < last_x < 150  # "my_photo.png" only, not the whole path
 
 
-def test_video_and_pdf_have_the_title_hook(view):
+def test_video_paints_title_when_enabled(view, qapp):
     video = make_video_item(view)
-    # The hook is present on all media classes via the mixin
-    assert hasattr(video, 'paint_media_title')
+    view.settings.setValue('Items/show_media_titles', True)
+    qapp.processEvents()
+    image = QtGui.QImage(400, 300, QtGui.QImage.Format.Format_ARGB32)
+    image.fill(QtGui.QColor(0, 0, 0))
+    painter = QtGui.QPainter(image)
+    video.paint(painter, None, None)
+    painter.end()
+    # The band sits right below the 240px tall video
+    found = any(image.pixelColor(x, y).lightness() > 40
+                for y in range(242, 280) for x in range(0, 320, 2))
+    assert found
+
+
+def test_pdf_paints_title_when_enabled(view, qapp):
     from xref.items import XRefPdfItem
     pdf = XRefPdfItem(filename='doc.pdf')
     view.scene.addItem(pdf)
-    assert hasattr(pdf, 'paint_media_title')
+    view.settings.setValue('Items/show_media_titles', True)
+    qapp.processEvents()
+    image = QtGui.QImage(700, 950, QtGui.QImage.Format.Format_ARGB32)
+    image.fill(QtGui.QColor(0, 0, 0))
+    painter = QtGui.QPainter(image)
+    pdf.paint(painter, None, None)
+    painter.end()
+    # The band sits right below the 900px tall PDF
+    found = any(image.pixelColor(x, y).lightness() > 40
+                for y in range(902, 945) for x in range(0, 640, 2))
+    assert found
+
+
+def test_titles_off_by_default_paint_nothing_for_video(view, qapp):
+    video = make_video_item(view)
+    view.settings.setValue('Items/show_media_titles', False)
+    qapp.processEvents()
+    image = QtGui.QImage(400, 300, QtGui.QImage.Format.Format_ARGB32)
+    image.fill(QtGui.QColor(0, 0, 0))
+    painter = QtGui.QPainter(image)
+    video.paint(painter, None, None)
+    painter.end()
+    for y in range(242, 280, 2):
+        for x in range(0, 320, 3):
+            assert image.pixelColor(x, y).lightness() <= 40
