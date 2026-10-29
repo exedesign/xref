@@ -43,6 +43,14 @@ Added
   reloading the scene. The original PDF is stored in the scene (and sent to
   the other machines in a collaboration session), so every page is
   rendered at full quality.
+* XRef now has a frameless, PureRef-like window: no title bar, double click
+  on the empty canvas switches to full screen (F11 toggles it, Escape leaves
+  it) and *View -> Always On Top* keeps the window above other applications.
+  Every edge and corner of the window can be dragged to resize it, and the
+  band just inside an edge moves the window (10 px by default, configurable
+  in Settings -> Miscellaneous -> Window Edge Move Area). Ctrl+Alt+drag and
+  Ctrl+M still move the window. The title bar and the always-on-top state
+  are remembered between sessions.
 * Videos and PDFs: a single left click now pins the frame or page under
   the pointer (a small padlock in the corner shows it), so moving the
   mouse over the item no longer scrubs or flips through it. The next

@@ -384,6 +384,14 @@ TRANSLATIONS = {
         'Set to 0 for no limitation.':
             'Yüklenebilecek en büyük görsel boyutu (megabayt). '
             'Sınırsız için 0 girin.',
+        'Window Edge Move Area:': 'Pencere Kenarı Taşıma Alanı:',
+        'The frameless window has no title bar. Drag this many pixels '
+        'inside the window edge to move it; the outermost pixels '
+        'resize the window. Set to 0 to disable the move area.':
+            'Çerçevesiz pencerenin başlık çubuğu yoktur. Pencereyi taşımak '
+            'için kenardan bu kadar piksel içeriden sürükleyin; en dıştaki '
+            'pikseller pencereyi boyutlandırır. 0 yazarsanız taşıma alanı '
+            'kapanır.',
         'Arrange Gap:': 'Yerleştirme Boşluğu:',
         'The gap between images when using arrange actions.':
             'Yerleştirme işlemlerinde görseller arasındaki boşluk.',
@@ -447,6 +455,10 @@ TRANSLATIONS = {
             'Görselleri ve videoları buraya yapıştırın veya sürükleyin.',
         'Right-click for more options.':
             'Daha fazla seçenek için sağ tıklayın.',
+        'Double-click the empty canvas to go full screen.':
+            'Tam ekran için boş alana çift tıklayın.',
+        'Hold Ctrl+Alt and drag to move the window.':
+            'Pencereyi taşımak için Ctrl+Alt basılı tutup sürükleyin.',
         'Recent Files': 'Son Dosyalar',
         '&Controls': '&Kontroller',
     },

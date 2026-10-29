@@ -91,6 +91,24 @@ class AltDoubleTapFilter(QtCore.QObject):
         return False
 
 
+class MenuBarDragFilter(QtCore.QObject):
+    """Drags the window by the empty part of the menu bar.
+
+    Frameless windows have no title bar, so the menu bar doubles as one.
+    """
+
+    def __init__(self, view):
+        super().__init__(view)
+        self.view = view
+
+    def eventFilter(self, obj, event):
+        if (event.type() == QtCore.QEvent.Type.MouseButtonPress
+                and event.button() == Qt.MouseButton.LeftButton
+                and obj.actionAt(event.pos()) is None):
+            return self.view.start_window_move()
+        return False
+
+
 class XRefGraphicsView(MainControlsMixin,
                       QtWidgets.QGraphicsView,
                       ActionsMixin):
@@ -126,6 +144,7 @@ class XRefGraphicsView(MainControlsMixin,
         self.filename = None
         self.previous_transform = None
         self.active_mode = None
+        self._resize_cursor_active = False
 
         self.scene = XRefGraphicsScene(self.undo_stack)
         self.scene.changed.connect(self.on_scene_changed)
@@ -325,12 +344,179 @@ class XRefGraphicsView(MainControlsMixin,
         else:
             self.parent.showNormal()
 
+    def is_frameless(self):
+        """Whether the window has no OS title bar (PureRef-like look)."""
+
+        return bool(self.parent.windowFlags()
+                    & Qt.WindowType.FramelessWindowHint)
+
+    def apply_window_flags(self, frameless=None, on_top=None):
+        """Changes the window flags and keeps the window usable.
+
+        Changing the flags hides the window, so it is shown again with the
+        same geometry (and full screen state) as before.
+        """
+
+        window = self.parent
+        flags = window.windowFlags()
+        if frameless is not None:
+            if frameless:
+                flags |= Qt.WindowType.FramelessWindowHint
+            else:
+                flags &= ~Qt.WindowType.FramelessWindowHint
+        if on_top is not None:
+            if on_top:
+                flags |= Qt.WindowType.WindowStaysOnTopHint
+            else:
+                flags &= ~Qt.WindowType.WindowStaysOnTopHint
+        if flags == window.windowFlags():
+            return
+        visible = window.isVisible()
+        fullscreen = window.isFullScreen()
+        maximized = window.isMaximized()
+        geometry = window.geometry()
+        window.setWindowFlags(flags)
+        window.setGeometry(geometry)
+        if fullscreen:
+            window.showFullScreen()
+        elif maximized:
+            window.showMaximized()
+        elif visible:
+            window.show()
+
+    def toggle_fullscreen(self):
+        """Switches between full screen and a normal window."""
+
+        fullscreen = not self.parent.isFullScreen()
+        action = actions.actions['fullscreen'].qaction
+        if action is not None and action.isChecked() != fullscreen:
+            action.blockSignals(True)
+            action.setChecked(fullscreen)
+            action.blockSignals(False)
+        self.on_action_fullscreen(fullscreen)
+
     def on_action_always_on_top(self, checked):
-        self.parent.setWindowFlag(
-            Qt.WindowType.WindowStaysOnTopHint, on=checked)
-        self.parent.destroy()
-        self.parent.create()
-        self.parent.show()
+        self.settings.setValue('View/always_on_top', checked)
+        self.apply_window_flags(on_top=checked)
+
+    RESIZE_EDGE_MARGIN = 6
+    DEFAULT_MOVE_MARGIN = 10
+
+    def start_window_move(self):
+        """Starts a native window drag (used for frameless windows)."""
+
+        handle = self.parent.windowHandle()
+        return handle is not None and handle.startSystemMove()
+
+    def make_menubar_dragable(self, menu_bar):
+        """Lets the empty part of the menu bar move the window."""
+
+        if menu_bar is None:
+            return
+        filt = getattr(self, '_menubar_drag_filter', None)
+        if filt is None:
+            filt = MenuBarDragFilter(self)
+            self._menubar_drag_filter = filt
+        menu_bar.installEventFilter(filt)
+
+    def window_move_margin(self):
+        """How many pixels inside the edge drag the window along."""
+
+        return max(0, int(self.settings.valueOrDefault(
+            'View/window_move_margin')))
+
+    def window_edge_hit(self, pos):
+        """What a left press at this viewport position does to the window.
+
+        Frameless windows have neither a title bar nor an OS border, so the
+        outermost pixels resize the window and the band right inside of it
+        moves the window - on every edge and corner.
+
+        :return: ``('resize', edges)``, ``('move', None)`` or ``None``
+        """
+
+        if not self.is_frameless():
+            return None
+        try:
+            x = float(pos.x())
+            y = float(pos.y())
+        except (TypeError, ValueError):
+            return None
+        rect = self.rect()
+        width, height = rect.width(), rect.height()
+        if not (0 <= x <= width and 0 <= y <= height):
+            return None
+        # Scrollbars live at the very edge; leave them usable
+        hbar = self.horizontalScrollBar()
+        if hbar.isVisible() and y >= height - hbar.height():
+            return None
+        vbar = self.verticalScrollBar()
+        if vbar.isVisible() and x >= width - vbar.width():
+            return None
+        Edge = Qt.Edge
+        margin = self.RESIZE_EDGE_MARGIN
+        band = margin + self.window_move_margin()
+        left = x <= band
+        right = x >= width - band
+        top = y <= band
+        bottom = y >= height - band
+        horizontal = (Edge.LeftEdge if x <= margin
+                      else Edge.RightEdge if x >= width - margin else None)
+        vertical = (Edge.TopEdge if y <= margin
+                    else Edge.BottomEdge if y >= height - margin else None)
+        if (left or right) and (top or bottom):
+            # Corners resize diagonally, like the border of a normal window
+            corner = ((Edge.LeftEdge if left else Edge.RightEdge)
+                      | (Edge.TopEdge if top else Edge.BottomEdge))
+            return 'resize', corner
+        if horizontal is not None:
+            return 'resize', horizontal
+        if vertical is not None:
+            return 'resize', vertical
+        if left or right or top or bottom:
+            return 'move', None
+        return None
+
+    def resize_edges_at(self, pos):
+        """The window edges under a viewport position.
+
+        :rtype: Qt.Edge or None
+        """
+
+        hit = self.window_edge_hit(pos)
+        if hit is None or hit[0] != 'resize':
+            return None
+        return hit[1]
+
+    def resize_cursor(self, edges):
+        """The mouse cursor for the given window edges."""
+
+        cursor = Qt.CursorShape
+        left = bool(edges & Qt.Edge.LeftEdge)
+        right = bool(edges & Qt.Edge.RightEdge)
+        top = bool(edges & Qt.Edge.TopEdge)
+        bottom = bool(edges & Qt.Edge.BottomEdge)
+        if left or right:
+            if top or bottom:
+                return QtGui.QCursor(
+                    cursor.SizeFDiagCursor if left == top
+                    else cursor.SizeBDiagCursor)
+            return QtGui.QCursor(cursor.SizeHorCursor)
+        return QtGui.QCursor(cursor.SizeVerCursor)
+
+    def update_window_edge_cursor(self, pos):
+        hit = self.window_edge_hit(pos)
+        if hit is None:
+            if self._resize_cursor_active:
+                self._resize_cursor_active = False
+                self.viewport().unsetCursor()
+            return
+        self._resize_cursor_active = True
+        if hit[0] == 'move':
+            self.viewport().setCursor(
+                QtGui.QCursor(Qt.CursorShape.SizeAllCursor))
+        else:
+            self.viewport().setCursor(self.resize_cursor(hit[1]))
 
     def on_action_show_scrollbars(self, checked):
         if checked:
@@ -346,16 +532,15 @@ class XRefGraphicsView(MainControlsMixin,
 
     def on_action_show_menubar(self, checked):
         if checked:
-            self.parent.setMenuBar(self.create_menubar())
+            menu_bar = self.create_menubar()
+            self.parent.setMenuBar(menu_bar)
+            self.make_menubar_dragable(menu_bar)
         else:
             self.parent.setMenuBar(None)
 
     def on_action_show_titlebar(self, checked):
-        self.parent.setWindowFlag(
-            Qt.WindowType.FramelessWindowHint, on=not checked)
-        self.parent.destroy()
-        self.parent.create()
-        self.parent.show()
+        self.settings.setValue('View/show_titlebar', checked)
+        self.apply_window_flags(frameless=not checked)
 
     def on_action_move_window(self):
         if self.welcome_overlay.isHidden():
@@ -1522,6 +1707,17 @@ class XRefGraphicsView(MainControlsMixin,
     def mousePressEvent(self, event):
         if self.mousePressEventMainControls(event):
             return
+        hit = self.window_edge_hit(event.pos())
+        if hit is not None and event.button() == Qt.MouseButton.LeftButton:
+            # Frameless windows have neither title bar nor OS border
+            if hit[0] == 'resize':
+                handle = self.parent.windowHandle()
+                if handle is not None and handle.startSystemResize(hit[1]):
+                    event.accept()
+                    return
+            elif self.start_window_move():
+                event.accept()
+                return
         if self.active_mode == self.SAMPLE_COLOR_MODE:
             if (event.button() == Qt.MouseButton.LeftButton):
                 color = self.scene.sample_color_at(
@@ -1595,9 +1791,23 @@ class XRefGraphicsView(MainControlsMixin,
             event.accept()
             return
 
+        if self.active_mode is None:
+            self.update_window_edge_cursor(event.pos())
+
         if self.mouseMoveEventMainControls(event):
             return
         super().mouseMoveEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        """A double click on the empty canvas switches to full screen."""
+
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.active_mode is None
+                and self.itemAt(event.pos()) is None):
+            self.toggle_fullscreen()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def mouseReleaseEvent(self, event):
         self._drag_export_items = []
@@ -1636,6 +1846,11 @@ class XRefGraphicsView(MainControlsMixin,
         if (event.key() == Qt.Key.Key_Escape
                 and self.scene.selected_link is not None):
             self.scene.clear_link_selection()
+            event.accept()
+            return
+        if (event.key() == Qt.Key.Key_Escape
+                and self.parent.isFullScreen()):
+            self.toggle_fullscreen()
             event.accept()
             return
         super().keyPressEvent(event)

@@ -91,7 +91,10 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
     @property
     def txt(self):
         return (f'<p>{tr("Paste or drop images and videos here.")}</p>'
-                f'<p>{tr("Right-click for more options.")}</p>')
+                f'<p>{tr("Right-click for more options.")}</p>'
+                f'<p>{tr("Double-click the empty canvas to go full screen.")}'
+                f'</p>'
+                f'<p>{tr("Hold Ctrl+Alt and drag to move the window.")}</p>')
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -163,6 +166,15 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
         if self.mouseReleaseEventMainControls(event):
             return
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        """A double click on the empty overlay switches to full screen."""
+
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.control_target.toggle_fullscreen()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event):
         if self.keyPressEventMainControls(event):

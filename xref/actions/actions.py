@@ -502,7 +502,8 @@ actions = ActionList([
         id='show_titlebar',
         text='Show &Title Bar',
         checkable=True,
-        checked=True,
+        checked=False,
+        settings='View/show_titlebar',
         callback='on_action_show_titlebar',
     ),
     Action(
@@ -522,6 +523,8 @@ actions = ActionList([
         id='always_on_top',
         text='&Always On Top',
         checkable=True,
+        checked=False,
+        settings='View/always_on_top',
         callback='on_action_always_on_top',
     ),
     Action(

@@ -151,7 +151,20 @@ class XRefSettings(QtCore.QSettings):
             'cast': int,
             'validate': lambda x: x >= 0,
             'post_save_callback': QtGui.QImageReader.setAllocationLimit,
-        }
+        },
+        'View/show_titlebar': {
+            'default': False,
+            'cast': bool,
+        },
+        'View/always_on_top': {
+            'default': False,
+            'cast': bool,
+        },
+        'View/window_move_margin': {
+            'default': 10,
+            'cast': int,
+            'validate': lambda x: 0 <= x <= 60,
+        },
     }
 
     def __init__(self):

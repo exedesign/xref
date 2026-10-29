@@ -15,6 +15,8 @@ Features
 
 * Reference images (PNG, JPG, WebP, GIF, ...), videos (MP4, MOV, WebM, ...) and
   multi-page PDFs
+* Frameless, PureRef-like window: double click the empty canvas for full
+  screen, an always-on-top mode and resizable edges
 * Infinite canvas with pan, zoom, rotate, flip, crop, arrange and normalize
 * Video playback with a DaVinci-Resolve-like hover scrub (red playhead), a
   remembered preview frame, play/pause, mute and volume controls

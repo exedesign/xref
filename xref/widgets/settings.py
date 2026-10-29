@@ -213,6 +213,16 @@ class LanguageWidget(RadioGroup):
         (code, name, name) for code, name in i18n.LANGUAGES.items())
 
 
+class WindowMoveMarginWidget(IntegerGroup):
+    TITLE = 'Window Edge Move Area:'
+    HELPTEXT = ('The frameless window has no title bar. Drag this many pixels '
+                'inside the window edge to move it; the outermost pixels '
+                'resize the window. Set to 0 to disable the move area.')
+    KEY = 'View/window_move_margin'
+    MIN = 0
+    MAX = 60
+
+
 class SettingsDialog(QtWidgets.QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -243,6 +253,7 @@ class SettingsDialog(QtWidgets.QDialog):
         misc_layout.addWidget(ConfirmCloseUnsavedWidget(), 1, 0)
         misc_layout.addWidget(AutosaveWidget(), 2, 0)
         misc_layout.addWidget(AutosaveIntervalWidget(), 2, 1)
+        misc_layout.addWidget(WindowMoveMarginWidget(), 3, 0)
         tabs.addTab(misc, tr('&Miscellaneous'))
 
         # Images & Items

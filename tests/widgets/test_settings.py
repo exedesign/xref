@@ -7,6 +7,7 @@ from xref.widgets.settings import (
     ConfirmCloseUnsavedWidget,
     ImageStorageFormatWidget,
     SettingsDialog,
+    WindowMoveMarginWidget,
 )
 
 
@@ -74,6 +75,26 @@ def test_arrange_gap_saves_change(settings, view):
     widget.set_value(8)
     assert settings.valueOrDefault('Items/arrange_gap') == 8
     assert widget.title() == 'Arrange Gap: ✎'
+
+
+def test_window_move_margin_default_is_ten(settings, view):
+    settings.remove('View/window_move_margin')
+    widget = WindowMoveMarginWidget()
+    assert widget.input.value() == 10
+    assert widget.input.minimum() == 0
+    assert widget.input.maximum() == 60
+
+
+def test_window_move_margin_initialises_input_from_settings(settings, view):
+    settings.setValue('View/window_move_margin', 24)
+    widget = WindowMoveMarginWidget()
+    assert widget.input.value() == 24
+
+
+def test_window_move_margin_saves_change(settings, view):
+    widget = WindowMoveMarginWidget()
+    widget.set_value(4)
+    assert settings.valueOrDefault('View/window_move_margin') == 4
 
 
 def test_arrange_gap_on_restore_defaults(settings, view):

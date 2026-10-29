@@ -909,28 +909,143 @@ def test_on_action_sample_color_when_multi_selection(view, item):
                                 .assert_called_once_with()
 
 
-@patch('PyQt6.QtWidgets.QWidget.create')
-@patch('PyQt6.QtWidgets.QWidget.destroy')
-@patch('PyQt6.QtWidgets.QWidget.show')
-def test_on_action_always_on_top_checked(
-        show_mock, destroy_mock, create_mock, view):
+def test_on_action_always_on_top_checked(view):
     view.on_action_always_on_top(True)
     assert view.parent.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
-    show_mock.assert_called_once()
-    destroy_mock.assert_called_once()
-    create_mock.assert_called_once()
+    # The window keeps its frameless look and stays open
+    assert view.parent.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert view.parent.isVisible()
 
 
-@patch('PyQt6.QtWidgets.QWidget.create')
-@patch('PyQt6.QtWidgets.QWidget.destroy')
-@patch('PyQt6.QtWidgets.QWidget.show')
-def test_on_action_always_on_top_unchecked(
-        show_mock, destroy_mock, create_mock, view):
+def test_on_action_always_on_top_unchecked(view):
+    view.on_action_always_on_top(True)
     view.on_action_always_on_top(False)
     assert not (view.parent.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
-    show_mock.assert_called_once()
-    destroy_mock.assert_called_once()
-    create_mock.assert_called_once()
+    assert view.parent.isVisible()
+
+
+def test_always_on_top_is_stored_in_the_settings(view):
+    view.on_action_always_on_top(True)
+    assert view.settings.value('View/always_on_top', type=bool) is True
+    view.on_action_always_on_top(False)
+    assert view.settings.value('View/always_on_top', type=bool) is False
+
+
+def double_click(view, pos):
+    event = QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseButtonDblClick,
+        QtCore.QPointF(pos),
+        QtCore.QPointF(pos),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier)
+    view.mouseDoubleClickEvent(event)
+
+
+def test_double_click_on_the_empty_canvas_toggles_fullscreen(view):
+    view.parent.showNormal()
+    double_click(view, QtCore.QPointF(20.0, 20.0))
+    assert view.parent.isFullScreen()
+    assert actions.actions['fullscreen'].qaction.isChecked()
+    double_click(view, QtCore.QPointF(20.0, 20.0))
+    assert not view.parent.isFullScreen()
+    assert not actions.actions['fullscreen'].qaction.isChecked()
+
+
+def test_double_click_on_an_item_does_not_toggle_fullscreen(view):
+    view.parent.showNormal()
+    view.resize(400, 300)
+    item = XRefPixmapItem(QtGui.QImage(200, 200,
+                                       QtGui.QImage.Format.Format_ARGB32))
+    view.scene.addItem(item)
+    item.setPos(40, 40)
+    view.on_action_fit_scene()
+    double_click(view, QtCore.QPointF(item.mapToScene(100, 100).toPoint()))
+    assert not view.parent.isFullScreen()
+
+
+def test_escape_leaves_fullscreen(view):
+    view.parent.showFullScreen()
+    assert view.parent.isFullScreen()
+    event = QtGui.QKeyEvent(
+        QtCore.QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+        Qt.KeyboardModifier.NoModifier)
+    view.keyPressEvent(event)
+    assert not view.parent.isFullScreen()
+
+
+def test_frameless_window_edges_are_resize_handles(view):
+    view.parent.resize(400, 300)
+    view.on_action_show_titlebar(False)
+    Edge = Qt.Edge
+    assert view.resize_edges_at(QtCore.QPoint(1, 150)) == Edge.LeftEdge
+    assert view.resize_edges_at(QtCore.QPoint(398, 150)) == Edge.RightEdge
+    assert view.resize_edges_at(QtCore.QPoint(200, 1)) == Edge.TopEdge
+    assert view.resize_edges_at(QtCore.QPoint(200, 298)) == Edge.BottomEdge
+    assert view.resize_edges_at(QtCore.QPoint(0, 0)) == (
+        Edge.LeftEdge | Edge.TopEdge)
+    assert view.resize_edges_at(QtCore.QPoint(200, 150)) is None
+    assert view.resize_cursor(
+        Edge.LeftEdge | Edge.TopEdge).shape() == (
+            Qt.CursorShape.SizeFDiagCursor)
+
+
+def test_window_edge_move_area(view):
+    view.parent.resize(400, 300)
+    view.on_action_show_titlebar(False)
+    assert view.window_move_margin() == 10
+    Edge = Qt.Edge
+    # The outermost pixels resize, the band inside of them moves the window
+    assert view.window_edge_hit(QtCore.QPoint(2, 150)) == (
+        'resize', Edge.LeftEdge)
+    assert view.window_edge_hit(QtCore.QPoint(10, 150)) == ('move', None)
+    assert view.window_edge_hit(QtCore.QPoint(398, 150)) == (
+        'resize', Edge.RightEdge)
+    assert view.window_edge_hit(QtCore.QPoint(390, 150)) == ('move', None)
+    assert view.window_edge_hit(QtCore.QPoint(200, 2)) == (
+        'resize', Edge.TopEdge)
+    assert view.window_edge_hit(QtCore.QPoint(200, 12)) == ('move', None)
+    assert view.window_edge_hit(QtCore.QPoint(200, 298)) == (
+        'resize', Edge.BottomEdge)
+    assert view.window_edge_hit(QtCore.QPoint(200, 290)) == ('move', None)
+    assert view.window_edge_hit(QtCore.QPoint(200, 150)) is None
+
+
+def test_window_corners_resize_diagonally(view):
+    view.parent.resize(400, 300)
+    view.on_action_show_titlebar(False)
+    Edge = Qt.Edge
+    assert view.window_edge_hit(QtCore.QPoint(10, 10)) == (
+        'resize', Edge.LeftEdge | Edge.TopEdge)
+    assert view.window_edge_hit(QtCore.QPoint(392, 292)) == (
+        'resize', Edge.RightEdge | Edge.BottomEdge)
+
+
+def test_window_move_area_width_is_configurable(view):
+    view.parent.resize(400, 300)
+    view.on_action_show_titlebar(False)
+    view.settings.setValue('View/window_move_margin', 0)
+    assert view.window_edge_hit(QtCore.QPoint(10, 150)) is None
+    view.settings.setValue('View/window_move_margin', 30)
+    assert view.window_edge_hit(QtCore.QPoint(10, 150)) == ('move', None)
+    assert view.window_edge_hit(QtCore.QPoint(34, 150)) == ('move', None)
+    assert view.window_edge_hit(QtCore.QPoint(40, 150)) is None
+    view.settings.setValue('View/window_move_margin', 10)
+
+
+def test_window_move_area_shows_a_move_cursor(view):
+    view.parent.resize(400, 300)
+    view.on_action_show_titlebar(False)
+    view.update_window_edge_cursor(QtCore.QPoint(10, 150))
+    assert view.viewport().cursor().shape() == Qt.CursorShape.SizeAllCursor
+    view.update_window_edge_cursor(QtCore.QPoint(200, 150))
+    assert view.viewport().cursor().shape() != Qt.CursorShape.SizeAllCursor
+
+
+def test_window_with_titlebar_has_no_resize_handles(view):
+    view.parent.resize(400, 300)
+    view.on_action_show_titlebar(True)
+    assert view.resize_edges_at(QtCore.QPoint(1, 150)) is None
 
 
 def test_on_action_show_menubar(view):
@@ -941,28 +1056,31 @@ def test_on_action_show_menubar(view):
     assert view.parent.menuBar().actions() == []
 
 
-@patch('PyQt6.QtWidgets.QWidget.create')
-@patch('PyQt6.QtWidgets.QWidget.destroy')
-@patch('PyQt6.QtWidgets.QWidget.show')
-def test_on_action_show_titlebar_checked(
-        show_mock, destroy_mock, create_mock, view):
+def test_the_window_is_frameless_by_default(view):
+    assert view.is_frameless()
+    assert view.parent.windowFlags() & Qt.WindowType.FramelessWindowHint
+
+
+def test_on_action_show_titlebar_checked(view):
+    view.on_action_show_titlebar(False)
     view.on_action_show_titlebar(True)
     assert not (view.parent.windowFlags() & Qt.WindowType.FramelessWindowHint)
-    show_mock.assert_called_once()
-    destroy_mock.assert_called_once()
-    create_mock.assert_called_once()
+    assert view.parent.isVisible()
+    assert not view.is_frameless()
 
 
-@patch('PyQt6.QtWidgets.QWidget.create')
-@patch('PyQt6.QtWidgets.QWidget.destroy')
-@patch('PyQt6.QtWidgets.QWidget.show')
-def test_on_action_show_titlebar_unchecked(
-        show_mock, destroy_mock, create_mock, view):
+def test_on_action_show_titlebar_unchecked(view):
     view.on_action_show_titlebar(False)
     assert view.parent.windowFlags() & Qt.WindowType.FramelessWindowHint
-    show_mock.assert_called_once()
-    destroy_mock.assert_called_once()
-    create_mock.assert_called_once()
+    assert view.parent.isVisible()
+    assert view.is_frameless()
+
+
+def test_titlebar_setting_is_stored(view):
+    view.on_action_show_titlebar(True)
+    assert view.settings.value('View/show_titlebar', type=bool) is True
+    view.on_action_show_titlebar(False)
+    assert view.settings.value('View/show_titlebar', type=bool) is False
 
 
 @patch('xref.widgets.welcome_overlay.WelcomeOverlay.cursor')
