@@ -72,6 +72,10 @@ TRANSLATIONS = {
 '&Images...': '&Görseller...',
         '&Video...': '&Video...',
         '&Play Video': 'Videoyu &Oynat',
+        'Click to lock this view': 'Bu görünümü kilitlemek için tıklayın',
+        'Click to rotate the model again':
+            'Modeli tekrar döndürmek için tıklayın',
+        '3D model could not be loaded': '3D model yüklenemedi',
         'Click to lock this frame': 'Bu kareyi kilitlemek için tıklayın',
         'Click to browse the frames again':
             'Kareler arasında gezinmek için tekrar tıklayın',

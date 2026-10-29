@@ -45,8 +45,8 @@ import uuid
 from PyQt6 import QtCore, QtGui, QtNetwork
 
 from xref.i18n import tr
-from xref.items import XRefDrawItem, XRefPdfItem, XRefPixmapItem, \
-    XRefTextItem, XRefVideoItem, item_registry
+from xref.items import XRefDrawItem, XRefModelItem, XRefPdfItem, \
+    XRefPixmapItem, XRefTextItem, XRefVideoItem, item_registry
 
 
 logger = logging.getLogger(__name__)
@@ -258,6 +258,13 @@ def item_asset_bytes(item):
         if image.isNull():
             return None
         return _png_bytes(image)
+    if item.TYPE == XRefModelItem.TYPE:
+        return item.model_to_bytes() or None
+    if item.TYPE == XRefModelItem.TYPE:
+        item.model_from_bytes(data)
+        item.release_mesh()
+        item.update()
+        return True
     if item.TYPE == XRefPdfItem.TYPE:
         return item.pdf_to_bytes() or None
     if item.TYPE == XRefVideoItem.TYPE:
@@ -366,6 +373,21 @@ def item_state(item, include_image=True):
                 if len(data) <= ASSET_INLINE_LIMIT:
                     state['asset']['inline'] = base64.b64encode(
                         data).decode('ascii')
+    elif item.TYPE == XRefModelItem.TYPE:
+        state['filename'] = item.filename
+        state['size'] = list(item.size())
+        yaw, pitch, zoom = item.current_view()
+        state['yaw'] = round(yaw, 2)
+        state['pitch'] = round(pitch, 2)
+        state['zoom'] = round(zoom, 4)
+        if include_image:
+            data = item_asset_bytes(item)
+            if data:
+                state['asset'] = _asset_meta(
+                    data, item.filename, 'model')
+                if len(data) <= ASSET_INLINE_LIMIT:
+                    state['asset']['inline'] = base64.b64encode(
+                        data).decode('ascii')
     elif item.TYPE == XRefPdfItem.TYPE:
         state['filename'] = item.filename
         state['size'] = list(item.size())
@@ -451,6 +473,18 @@ def create_item_from_state(state):
             item._muted = bool(state.get('muted', False))
         except (TypeError, ValueError):
             pass
+    elif itype == XRefModelItem.TYPE:
+        size = state.get('size')
+        item = XRefModelItem(
+            filename=state.get('filename'),
+            size=tuple(size) if size else None,
+            yaw=float(state.get('yaw') or 30),
+            pitch=float(state.get('pitch') or 20),
+            zoom=float(state.get('zoom') or 1.0))
+        data = _state_media_bytes(state, 'model')
+        if data:
+            item.model_from_bytes(data)
+        item.setOpacity(state.get('opacity', 1))
     elif itype == XRefPdfItem.TYPE:
         size = state.get('size')
         item = XRefPdfItem(

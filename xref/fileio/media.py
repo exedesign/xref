@@ -38,6 +38,9 @@ VIDEO_EXTENSIONS = (
 # Multi-page documents
 PDF_EXTENSIONS = ('.pdf',)
 
+# Simple 3D models, rendered in software (see xref/model3d.py)
+MODEL3D_EXTENSIONS = ('.obj', '.stl', '.ply', '.fbx')
+
 # mimetypes doesn't recognise some extensions on all platforms; make
 # sure we classify them correctly
 mimetypes.add_type('image/webp', '.webp')
@@ -81,6 +84,13 @@ def _has_pdf_extension(path):
     return ext in PDF_EXTENSIONS
 
 
+def _has_model_extension(path):
+    if isinstance(path, QtCore.QUrl):
+        path = path.toString()
+    ext = os.path.splitext(path)[1].lower()
+    return ext in MODEL3D_EXTENSIONS
+
+
 def media_type(path):
     """Classify a file name or URL by media type.
 
@@ -91,7 +101,9 @@ def media_type(path):
 
     mime = guess_mime_type(path)
     if _has_pdf_extension(path) or mime == 'application/pdf':
-        return 'pdf'
+        return 'pdf'    if _has_model_extension(path):
+        return 'model'
+
     if mime and mime.startswith('image/'):
         return 'image'
     if mime and (mime.startswith('video/') or _has_video_extension(path)):
@@ -159,6 +171,20 @@ def _resolve_path_or_url(path):
     return os.path.normpath(path), None
 
 
+def load_model(path):
+    """Downloads or resolves a 3D model file to a local path."""
+
+    if isinstance(path, QtCore.QUrl):
+        if path.isLocalFile():
+            return path.toLocalFile()
+        url = str(path.toString())
+    else:
+        url = path
+    if url.startswith('http://') or url.startswith('https://'):
+        return download_url(url)
+    return url if os.path.isfile(url) else None
+
+
 def load_video(path):
     """Resolve a video file or URL to a local file name.
 
@@ -215,6 +241,12 @@ def load_media(path):
         if not local:
             return None
         return ('pdf', local, os.path.basename(local))
+
+    if mt == 'model':
+        local = load_model(path)
+        if not local:
+            return None
+        return ('model', local, local)
 
     if mt == 'video':
         local = load_video(path)

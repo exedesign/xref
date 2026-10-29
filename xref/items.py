@@ -31,6 +31,7 @@ from xref import commands
 from xref.config import XRefSettings
 from xref.constants import COLORS
 from xref.i18n import tr
+from xref import model3d
 from xref.selection import SelectableMixin
 
 
@@ -1634,6 +1635,419 @@ class XRefPdfItem(XRefItemMixin, QtWidgets.QGraphicsItem):
 
     def contains(self, point):
         return self.bounding_rect_unselected().contains(point)
+
+
+@register_item
+class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
+    """A simple 3D model (OBJ/STL/PLY, FBX optional), rendered in software.
+
+    Like videos and PDFs: moving the mouse over the model rotates it as a
+    preview (the red playhead line shows the yaw angle), a single click
+    pins the current view (padlock) and the next click browses again. The
+    pinned view is remembered and saved with the board. Dragging rotates
+    freely, the mouse wheel zooms.
+    """
+
+    TYPE = 'model'
+    DEFAULT_SIZE = (480, 480)
+    CONTROLS_HEIGHT = 24
+    CONTROLS_MARGIN = 8
+
+    def __init__(self, model_path=None, filename=None, size=None,
+                 mesh=None, yaw=30, pitch=20, zoom=1.0, **kwargs):
+        super().__init__()
+        self.save_id = None
+        self.model_path = model_path
+        self.filename = filename or (
+            os.path.basename(model_path) if model_path else None)
+        self._width, self._height = (tuple(size) if size
+                                     else self.DEFAULT_SIZE)
+        self.is_image = False
+        self.is_model = True
+        self.init_selectable()
+        self.setAcceptHoverEvents(True)
+
+        self.model_bytes = None
+        self._temp_model_file = None
+        self._mesh = mesh
+        self._normals = None
+        self._frame = None
+        self._current_yaw = float(yaw)
+        self._current_pitch = float(pitch)
+        self._display_yaw = self._current_yaw
+        self._display_pitch = self._current_pitch
+        self._zoom = max(0.05, float(zoom))
+        self._hovered = False
+        self._hover_pos = None
+        self._frame_locked = False
+        self._click_pos = None
+        self._dragging_rotation = None
+        self._refresh_tooltip()
+        if self._mesh is not None:
+            self._build_projection_cache()
+        logger.debug(f'Initialized {self}')
+
+    def __str__(self):
+        return (f'Model "{self.filename}" '
+                f'({len(self._mesh["triangles"]) if self._mesh else 0} '
+                f'triangles)')
+
+    # -- Loading -----------------------------------------------------------
+
+    @classmethod
+    def create_from_data(cls, **kwargs):
+        item = kwargs.get('item')
+        data = kwargs.get('data', {}) or {}
+        if item is None:
+            item = cls(
+                filename=data.get('filename'),
+                size=data.get('size'),
+                mesh=None,
+                yaw=data.get('yaw', 30),
+                pitch=data.get('pitch', 20),
+                zoom=data.get('zoom', 1.0))
+        else:
+            item.filename = item.filename or data.get('filename')
+            size = data.get('size')
+            if size:
+                item._width, item._height = size
+            try:
+                item._current_yaw = float(data.get('yaw', 30) or 30) % 360
+                item._current_pitch = max(
+                    -89.0, min(89.0, float(data.get('pitch', 20) or 20)))
+                item._zoom = max(0.05, float(data.get('zoom', 1.0) or 1.0))
+            except (TypeError, ValueError):
+                pass
+            item._display_yaw = item._current_yaw
+            item._display_pitch = item._current_pitch
+        if not item.model_path and data.get('model_path'):
+            item.model_path = data['model_path']
+        item.setOpacity(data.get('opacity', 1))
+        return item
+
+    def model_to_bytes(self):
+        if self.model_bytes is not None:
+            return self.model_bytes
+        if self.model_path and os.path.isfile(self.model_path):
+            with open(self.model_path, 'rb') as f:
+                return f.read()
+        return None
+
+    def model_from_bytes(self, data):
+        self.model_bytes = data
+        self._mesh = None
+        self._frame = None
+
+    def _local_model_path(self):
+        if self.model_path and os.path.isfile(self.model_path):
+            return self.model_path
+        if self._temp_model_file and os.path.isfile(self._temp_model_file):
+            return self._temp_model_file
+        if self.model_bytes is not None:
+            tmp = tempfile.NamedTemporaryFile(
+                prefix='xref_model_', delete=False)
+            with tmp:
+                tmp.write(self.model_bytes)
+            self._temp_model_file = tmp.name
+            return tmp.name
+        return None
+
+    def _ensure_mesh(self):
+        if self._mesh is not None:
+            return True
+        data = self.model_bytes
+        if data is None:
+            path = self._local_model_path()
+            if path is None:
+                return False
+            with open(path, 'rb') as f:
+                data = f.read()
+            self.model_bytes = data
+        try:
+            self._mesh = model3d.parse_model(data, self.filename)
+        except ValueError as e:
+            logger.info(f'Could not load 3D model {self.filename}: {e}')
+            return False
+        self._normals = model3d.face_normals(self._mesh)
+        self._build_projection_cache()
+        return True
+
+    def _build_projection_cache(self):
+        self._frame = None
+
+    # -- View state ----------------------------------------------------------
+
+    def current_view(self):
+        return (self._current_yaw, self._current_pitch, self._zoom)
+
+    def set_view(self, yaw=None, pitch=None, zoom=None, pin=True):
+        if yaw is not None:
+            self._current_yaw = float(yaw) % 360 if pin \
+                else self._current_yaw
+            self._display_yaw = float(yaw) % 360
+        if pitch is not None:
+            if pin:
+                self._current_pitch = max(-89.0, min(89.0, float(pitch)))
+            self._display_pitch = max(-89.0, min(89.0, float(pitch)))
+        if zoom is not None:
+            value = max(0.05, min(8.0, float(zoom)))
+            if pin:
+                self._zoom = value
+        self.update()
+
+    def release_mesh(self):
+        """Frees parsed geometry; the pinned projection is kept."""
+
+        self._mesh = None
+        self._normals = None
+
+    def create_copy(self):
+        yaw, pitch, zoom = self.current_view()
+        item = XRefModelItem(
+            filename=self.filename,
+            size=(self._width, self._height),
+            mesh=self._mesh,
+            yaw=yaw, pitch=pitch, zoom=zoom)
+        if self.model_bytes is not None:
+            item.model_bytes = self.model_bytes
+        else:
+            item.model_path = self.model_path
+        if self._normals is not None:
+            item._normals = self._normals
+        item.setPos(self.pos())
+        item.setZValue(self.zValue())
+        item.setScale(self.scale())
+        item.setRotation(self.rotation())
+        item.setOpacity(self.opacity())
+        if self.flip() == -1:
+            item.do_flip()
+        return item
+
+    # -- Persistence -----------------------------------------------------------
+
+    def size(self):
+        return (self._width, self._height)
+
+    def bounding_rect_unselected(self):
+        return QtCore.QRectF(0, 0, self._width, self._height)
+
+    def get_extra_save_data(self):
+        return {
+            'filename': self.filename,
+            'opacity': self.opacity(),
+            'size': [self._width, self._height],
+            'yaw': round(self._current_yaw, 2),
+            'pitch': round(self._current_pitch, 2),
+            'zoom': round(self._zoom, 4),
+            'model_path': self.model_path,
+        }
+
+    def get_filename_for_export(self, fmt, save_id_default=None):
+        save_id = self.save_id or save_id_default or 0
+        if self.filename:
+            return self.filename
+        return f'{save_id:04}.model'
+
+    # -- Interaction (video-like) ----------------------------------------------
+
+    def _ui(self, pixels):
+        return self.fixed_length_for_viewport(pixels)
+
+    def _controls_rect(self):
+        margin = min(self._ui(self.CONTROLS_MARGIN), self._width * 0.05)
+        height = min(self._ui(self.CONTROLS_HEIGHT), self._height * 0.12)
+        return QtCore.QRectF(margin, self._height - height - margin,
+                             max(0, self._width - 2 * margin), height)
+
+    def _controls_visible(self):
+        return self._hovered or self._frame_locked
+
+    def is_control_hit(self, scene_pos):
+        return self._controls_visible() and self._controls_rect().contains(
+            self.mapFromScene(scene_pos))
+
+    def _refresh_tooltip(self):
+        if self._frame_locked:
+            self.setToolTip(tr('Click to rotate the model again'))
+        else:
+            self.setToolTip(tr('Click to lock this view'))
+
+    def toggle_lock(self, pos=None):
+        if pos is not None and not self._frame_locked:
+            yaw = (pos.x() / max(1.0, self._width)) * 360
+            pitch = 90 - (pos.y() / max(1.0, self._height)) * 180
+            self.set_view(yaw=yaw, pitch=pitch, zoom=self._zoom)
+        self._frame_locked = not self._frame_locked
+        self._refresh_tooltip()
+        self.update()
+        return self._frame_locked
+
+    def hoverEnterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverMoveEvent(self, event):
+        super().hoverMoveEvent(event)
+        pos = event.pos()
+        self._hover_pos = pos
+        scene = self.scene()
+        dragging = scene is not None and scene.active_mode is not None
+        if (not self._frame_locked and not dragging
+                and self.bounding_rect_unselected().contains(pos)
+                and not self._controls_rect().contains(pos)):
+            yaw = (pos.x() / max(1.0, self._width)) * 360
+            pitch = 90 - (pos.y() / max(1.0, self._height)) * 180
+            if self._dragging_rotation is not None:
+                last_x, last_y = self._dragging_rotation
+                yaw = (self._display_yaw + (pos.x() - last_x) * 0.6) % 360
+                pitch = max(-89.0, min(89.0,
+                            self._display_pitch - (pos.y() - last_y) * 0.6))
+            self.set_view(yaw=yaw, pitch=pitch, pin=True)
+            self._dragging_rotation = (pos.x(), pos.y())
+        self.update()
+
+    def hoverLeaveEvent(self, event):
+        self._hovered = False
+        self._hover_pos = None
+        self._dragging_rotation = None
+        self._display_yaw = self._current_yaw
+        self._display_pitch = self._current_pitch
+        self.update()
+        super().hoverLeaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._click_pos = (event.pos(), self.pos())
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        click = self.was_plain_click(event)
+        super().mouseReleaseEvent(event)
+        if (click and self.bounding_rect_unselected().contains(event.pos())):
+            self.toggle_lock(event.pos())
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta:
+            self.set_view(zoom=self._zoom * (1.1 if delta > 0 else 0.9))
+        event.accept()
+
+    # -- Painting ---------------------------------------------------------------
+
+    def paint(self, painter, option, widget):
+        rect = self.bounding_rect_unselected()
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        self.paint_media_title(painter, rect, self.filename)
+
+        if not self._ensure_mesh():
+            self._paint_placeholder(painter, rect)
+        else:
+            self._paint_model(painter, rect)
+
+        if self._hovered and self._hover_pos:
+            pen = QtGui.QPen(QtGui.QColor(255, 60, 60))
+            pen.setCosmetic(True)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            x = max(0, min(self._width, self._hover_pos.x()))
+            painter.drawLine(QtCore.QPointF(x, 0),
+                             QtCore.QPointF(x, self._height))
+        if self._frame_locked:
+            self.paint_lock_indicator(painter)
+        if self._controls_visible():
+            self._paint_controls(painter)
+        self.paint_selectable(painter, option, widget)
+
+    def _paint_placeholder(self, painter, rect):
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(35, 35, 40)))
+        painter.drawRect(rect)
+        painter.setPen(QtGui.QColor(230, 230, 230))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter,
+                         tr('3D model could not be loaded'))
+
+    def _paint_model(self, painter, rect):
+        """Projects and shades the mesh with the current view angles."""
+
+        mesh = self._mesh
+        v = mesh['vertices']
+        (minx, miny, minz), (maxx, maxy, maxz) = model3d.bounding_box(mesh)
+        cx, cy, cz = ((minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2)
+        span = max(maxx - minx, maxy - miny, maxz - minz) or 1.0
+        scale = 0.42 * min(self._width, self._height) / span * self._zoom
+
+        import math
+        yaw = math.radians(self._display_yaw)
+        pitch = math.radians(self._display_pitch)
+        cos_y, sin_y = math.cos(yaw), math.sin(yaw)
+        cos_p, sin_p = math.cos(pitch), math.sin(pitch)
+        eye_x, eye_y, eye_z = 0.0, 0.0, 1.0
+
+        # Project all vertices
+        projected = []
+        depth_of = []
+        for i in range(len(v) // 3):
+            x = (v[i * 3] - cx) * scale
+            y = (v[i * 3 + 1] - cy) * scale
+            z = (v[i * 3 + 2] - cz) * scale
+            # Yaw around Z, pitch around X
+            rx = x * cos_y - y * sin_y
+            ry = x * sin_y + y * cos_y
+            rz = z
+            ry2 = ry * cos_p - rz * sin_p
+            rz2 = ry * sin_p + rz * cos_p
+            px = rect.center().x() + rx
+            py = rect.center().y() - ry2
+            depth = rz2
+            projected.append((px, py))
+            depth_of.append(depth)
+
+        # Painter's algorithm: far triangles first
+        order = sorted(
+            range(len(mesh['triangles'])),
+            key=lambda t: (depth_of[mesh['triangles'][t][0]]
+                           + depth_of[mesh['triangles'][t][1]]
+                           + depth_of[mesh['triangles'][t][2]]))
+
+        base = QtGui.QColor(120, 150, 200)
+        for index in order:
+            a, b, c = mesh['triangles'][index]
+            if index < len(self._normals):
+                nx, ny, nz = self._normals[index]
+                # Rotate the normal like the vertices, then take the
+                # amount facing the viewer for lambert shading
+                rnx = nx * cos_y - ny * sin_y
+                rny = nx * sin_y + ny * cos_y
+                rny2 = rny * cos_p - nz * sin_p
+                rnz2 = rny * sin_p + nz * cos_p
+                light = max(0.25, min(
+                    1.0, 0.55 + 0.45 * (rnz2 * eye_z)))
+            else:
+                light = 0.7
+            color = QtGui.QColor(
+                int(base.red() * light), int(base.green() * light),
+                int(base.blue() * light))
+            painter.setPen(QtGui.QPen(color, 1))
+            painter.setBrush(color)
+            painter.drawPolygon(
+                QtCore.QPointF(*projected[a]),
+                QtCore.QPointF(*projected[b]),
+                QtCore.QPointF(*projected[c]))
+
+    def _paint_controls(self, painter):
+        rect = self._controls_rect()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(0, 0, 0, 160))
+        painter.drawRect(rect)
+        painter.setPen(QtGui.QColor(230, 230, 230))
+        font = painter.font()
+        font.setPointSizeF(max(1.0, self._ui(9)))
+        painter.setFont(font)
+        painter.drawText(
+            rect, Qt.AlignmentFlag.AlignCenter,
+            f'{int(self._display_yaw)}\u00b0 / {int(self._display_pitch)}'
+            f'\u00b0  x{self._zoom:.1f}')
 
 
 @register_item

@@ -51,6 +51,14 @@ Added
   in Settings -> Miscellaneous -> Window Edge Move Area). Ctrl+Alt+drag and
   Ctrl+M still move the window. The title bar and the always-on-top state
   are remembered between sessions.
+* 3D reference images: OBJ, STL and PLY models (and FBX when the
+  optional pyassimp package is installed) can be dropped into the
+  board like any other media. The mesh is rendered in software with
+  simple shading, no external 3D engine needed. Like videos and PDFs,
+  moving the mouse over the model rotates it as a preview, a single
+  click locks the view (padlock) and the mouse wheel zooms. The pinned
+  view is remembered and saved with the board, and the original file
+  bytes travel to the other machines in a collaboration session.
 * Media titles: images, videos and PDFs can show their file name on
   the canvas (Settings -> Miscellaneous -> Show Media Titles), so
   references are easier to identify. The titles keep a readable size

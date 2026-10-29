@@ -1099,7 +1099,8 @@ class XRefGraphicsView(MainControlsMixin,
             caption=tr('Select one or more images or PDFs to open'),
             filter=(f'Images and PDFs ({formats} *.pdf);;'
                     f'PDF (*.pdf);;'
-                    f'Images ({formats})'))
+                    f'Images ({formats});;'
+                    f'3D Models (*.obj *.stl *.ply *.fbx)'))
         self.do_insert_images(filenames)
 
     def on_action_insert_video(self):
