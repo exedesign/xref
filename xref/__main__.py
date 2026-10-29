@@ -72,7 +72,10 @@ class XRefMainWindow(QtWidgets.QMainWindow):
         event.accept()
 
     def __del__(self):
-        del self.view
+        try:
+            del self.view
+        except RuntimeError:  # already deleted by Qt on shutdown
+            pass
 
 
 def safe_timer(timeout, func, *args, **kwargs):

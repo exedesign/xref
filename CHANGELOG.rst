@@ -51,6 +51,8 @@ Added
   in Settings -> Miscellaneous -> Window Edge Move Area). Ctrl+Alt+drag and
   Ctrl+M still move the window. The title bar and the always-on-top state
   are remembered between sessions.
+* The background colour of the working area can be changed in
+  Settings -> Miscellaneous -> Canvas Background Color (black by default).
 * The window has minimize, full screen and close buttons in the top right
   corner. They appear when the pointer rests there for a moment (three
   seconds by default, configurable in Settings -> Miscellaneous -> Window

@@ -1,9 +1,10 @@
 from unittest.mock import patch
 
-from PyQt6 import QtWidgets
+from PyQt6 import QtGui, QtWidgets
 
 from xref.widgets.settings import (
     ArrangeGapWidget,
+    CanvasColorWidget,
     ConfirmCloseUnsavedWidget,
     ImageStorageFormatWidget,
     SettingsDialog,
@@ -75,6 +76,26 @@ def test_arrange_gap_saves_change(settings, view):
     widget.set_value(8)
     assert settings.valueOrDefault('Items/arrange_gap') == 8
     assert widget.title() == 'Arrange Gap: ✎'
+
+
+def test_canvas_color_default_is_black(settings, view):
+    settings.remove('View/canvas_color')
+    widget = CanvasColorWidget()
+    assert widget.color == QtGui.QColor(0, 0, 0)
+    assert widget.button.text() == '#000000'
+
+
+def test_canvas_color_initialises_from_settings(settings, view):
+    settings.setValue('View/canvas_color', '#204060')
+    widget = CanvasColorWidget()
+    assert widget.color == QtGui.QColor('#204060')
+
+
+def test_canvas_color_saves_change(settings, view):
+    widget = CanvasColorWidget()
+    widget.set_value('#abcdef')
+    widget.on_value_changed(widget.color.name())
+    assert settings.valueOrDefault('View/canvas_color') == '#abcdef'
 
 
 def test_window_move_margin_default_is_ten(settings, view):

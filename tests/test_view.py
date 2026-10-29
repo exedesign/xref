@@ -1098,6 +1098,31 @@ def centre_drift(view, scene_point):
             pixel.y() - viewport.height() / 2)
 
 
+def test_canvas_color_is_black_by_default(view):
+    view.settings.remove('View/canvas_color')
+    view.apply_canvas_color()
+    color = view.get_canvas_color()
+    assert color == QtGui.QColor(0, 0, 0)
+
+
+def test_canvas_color_is_read_from_the_settings(view):
+    view.settings.setValue('View/canvas_color', '#1a2b3c')
+    view.apply_canvas_color()
+    assert view.get_canvas_color() == QtGui.QColor('#1a2b3c')
+
+
+def test_canvas_color_can_be_set_and_stored(view):
+    view.set_canvas_color(QtGui.QColor('#305070'))
+    assert view.get_canvas_color() == QtGui.QColor('#305070')
+    assert view.settings.valueOrDefault('View/canvas_color') == '#305070'
+
+
+def test_canvas_color_falls_back_on_invalid_values(view):
+    view.settings.setValue('View/canvas_color', 'not-a-color')
+    view.apply_canvas_color()
+    assert view.get_canvas_color() == QtGui.QColor(0, 0, 0)
+
+
 def test_fullscreen_round_trip_keeps_the_canvas(view, qapp):
     add_board_items(view)
     reference = view.view_centre_scene()

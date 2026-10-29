@@ -18,10 +18,25 @@ import logging
 import os
 import os.path
 
-from PyQt6 import QtCore, QtGui
+from PyQt6 import QtCore, QtGui, QtWidgets
 
 from xref import constants
 from xref import i18n
+
+
+logger = logging.getLogger(__name__)
+
+
+def apply_canvas_color_setting(value):
+    """Applies the canvas colour setting to all open views."""
+
+    from xref.view import XRefGraphicsView
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        for view in widget.findChildren(XRefGraphicsView):
+            view.apply_canvas_color()
 
 
 logger = logging.getLogger(__name__)
@@ -169,6 +184,11 @@ class XRefSettings(QtCore.QSettings):
             'default': 3,
             'cast': int,
             'validate': lambda x: 0 <= x <= 30,
+        },
+        'View/canvas_color': {
+            'default': '#000000',
+            'validate': lambda x: isinstance(x, str) and len(x) == 7,
+            'post_save_callback': apply_canvas_color_setting,
         },
     }
 

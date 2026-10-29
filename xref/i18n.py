@@ -394,6 +394,11 @@ TRANSLATIONS = {
         'Minimize': 'Küçült',
         'Full screen': 'Tam ekran',
         'Close window': 'Pencereyi kapat',
+        'Canvas Background Color:': 'Çalışma Alanı Arka Plan Rengi:',
+        'The background colour of the working area. Black is a good '
+        'default for looking at reference images.':
+            'Çalışma alanının arka plan rengi. Referans görsellere bakmak '
+            'için siyah iyi bir varsayılandır.',
         'Window Edge Move Area:': 'Pencere Kenarı Taşıma Alanı:',
         'The frameless window has no title bar. Drag this many pixels '
         'inside the window edge to move it; the outermost pixels '

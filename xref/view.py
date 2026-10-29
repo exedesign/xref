@@ -126,8 +126,10 @@ class XRefGraphicsView(MainControlsMixin,
         self.keyboard_settings = KeyboardSettings()
         self.welcome_overlay = widgets.welcome_overlay.WelcomeOverlay(self)
 
-        self.setBackgroundBrush(
-            QtGui.QBrush(QtGui.QColor(*constants.COLORS['Scene:Canvas'])))
+        # The canvas colour can be set before the scene exists; invalid
+        # colours fall back to the palette default
+        self.setBackgroundBrush(QtGui.QBrush(
+            self._canvas_color_from_settings()))
         self.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         # Links are drawn in the foreground across large areas, so the
         # default minimal updates would leave trails behind moving items
@@ -332,6 +334,33 @@ class XRefGraphicsView(MainControlsMixin,
                'Are you sure you want to open a new scene?'))
         if confirm:
             self.clear_scene()
+
+    def _canvas_color_from_settings(self):
+        color = QtGui.QColor(self.settings.valueOrDefault('View/canvas_color'))
+        if not color.isValid():
+            color = QtGui.QColor(*constants.COLORS['Scene:Canvas'])
+        return color
+
+    def apply_canvas_color(self):
+        """Sets the background colour of the canvas from the settings."""
+
+        brush = QtGui.QBrush(self._canvas_color_from_settings())
+        self.setBackgroundBrush(brush)
+        scene = getattr(self, 'scene', None)
+        if scene is not None:
+            scene.setBackgroundBrush(brush)
+
+    def get_canvas_color(self):
+        """The current canvas colour."""
+
+        return self.backgroundBrush().color()
+
+    def set_canvas_color(self, color):
+        """Sets and stores a new canvas colour."""
+
+        self.settings.setValue('View/canvas_color', color.name())
+        self.apply_canvas_color()
+        self.viewport().update()
 
     def on_action_fit_scene(self):
         self.fit_rect(self.scene.itemsBoundingRect())

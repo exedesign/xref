@@ -16,7 +16,7 @@
 from functools import partial
 import logging
 
-from PyQt6 import QtCore, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
 from xref import constants, i18n
@@ -134,6 +134,35 @@ class SingleCheckboxGroup(GroupBase):
         return value == Qt.CheckState.Checked
 
 
+class ColorGroup(GroupBase):
+    """A colour picker used as a setting."""
+
+    def __init__(self):
+        super().__init__()
+        self.button = QtWidgets.QPushButton()
+        self.button.clicked.connect(self.on_button_clicked)
+        self.layout.addWidget(self.button)
+        self.layout.addStretch(100)
+        self.ignore_value_changed = False
+        self.set_value(self.settings.valueOrDefault(self.KEY))
+
+    def set_value(self, value):
+        self.color = QtGui.QColor(value)
+        if not self.color.isValid():
+            self.color = QtGui.QColor(0, 0, 0)
+        self.button.setText(self.color.name())
+        pixmap = QtGui.QPixmap(16, 16)
+        pixmap.fill(self.color)
+        self.button.setIcon(QtGui.QIcon(pixmap))
+
+    def on_button_clicked(self):
+        dialog = QtWidgets.QColorDialog(
+            self.color, self.window())
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.set_value(dialog.selectedColor().name())
+            self.on_value_changed(self.color.name())
+
+
 class ArrangeDefaultWidget(RadioGroup):
     TITLE = 'Default Arrange Method:'
     HELPTEXT = ('How images are arranged when inserted in batch')
@@ -213,6 +242,13 @@ class LanguageWidget(RadioGroup):
         (code, name, name) for code, name in i18n.LANGUAGES.items())
 
 
+class CanvasColorWidget(ColorGroup):
+    TITLE = 'Canvas Background Color:'
+    HELPTEXT = ('The background colour of the working area. Black is a good '
+                'default for looking at reference images.')
+    KEY = 'View/canvas_color'
+
+
 class WindowButtonsDelayWidget(IntegerGroup):
     TITLE = 'Window Buttons Delay:'
     HELPTEXT = ('How long the pointer has to rest in the top right corner '
@@ -265,6 +301,7 @@ class SettingsDialog(QtWidgets.QDialog):
         misc_layout.addWidget(AutosaveIntervalWidget(), 2, 1)
         misc_layout.addWidget(WindowMoveMarginWidget(), 3, 0)
         misc_layout.addWidget(WindowButtonsDelayWidget(), 3, 1)
+        misc_layout.addWidget(CanvasColorWidget(), 4, 0)
         tabs.addTab(misc, tr('&Miscellaneous'))
 
         # Images & Items
