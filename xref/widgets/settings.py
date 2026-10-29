@@ -242,6 +242,26 @@ class LanguageWidget(RadioGroup):
         (code, name, name) for code, name in i18n.LANGUAGES.items())
 
 
+class ModelMaxTrianglesWidget(IntegerGroup):
+    TITLE = 'Model Quality (Triangles):'
+    HELPTEXT = ('Maximum number of triangles rendered per 3D model. Higher '
+                'values look more detailed but rotate slower; lower values '
+                'are faster. Models above the limit keep their silhouette.')
+    KEY = 'Items/model_max_triangles'
+    MIN = 1000
+    MAX = 500000
+
+
+class ModelPreviewIntervalWidget(IntegerGroup):
+    TITLE = 'Model Preview Interval (ms):'
+    HELPTEXT = ('While rotating a heavy model, the preview is refreshed at '
+                'most this often. 0 disables the throttle (smoothest, but '
+                'big models can lag).')
+    KEY = 'Items/model_preview_interval'
+    MIN = 0
+    MAX = 1000
+
+
 class ShowMediaTitlesWidget(SingleCheckboxGroup):
     TITLE = 'Show Media Titles:'
     HELPTEXT = ('Show the file name of each image, video and PDF on the '
@@ -322,6 +342,14 @@ class SettingsDialog(QtWidgets.QDialog):
         items_layout.addWidget(ArrangeGapWidget(), 1, 0)
         items_layout.addWidget(ArrangeDefaultWidget(), 1, 1)
         tabs.addTab(items, tr('&Images && Items'))
+
+        # 3D Viewer
+        viewer = QtWidgets.QWidget()
+        viewer_layout = QtWidgets.QGridLayout()
+        viewer.setLayout(viewer_layout)
+        viewer_layout.addWidget(ModelMaxTrianglesWidget(), 0, 0)
+        viewer_layout.addWidget(ModelPreviewIntervalWidget(), 0, 1)
+        tabs.addTab(viewer, tr('3&D Viewer'))
 
         self.layout.addWidget(tabs)
 

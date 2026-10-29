@@ -1672,6 +1672,7 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self.model_bytes = None
         self._temp_model_file = None
         self._mesh = mesh
+        self._parsed = None
         self._normals = None
         self._frame = None
         self._current_yaw = float(yaw)
@@ -1779,12 +1780,39 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             self._load_error = str(e)
             return False
         self._load_error = None
-        self._mesh = model3d.decimate(parsed)
+        self._parsed = parsed
+        self._apply_decimation()
+        return True
+
+    def _model_settings(self):
+        settings = getattr(self, 'settings', None)
+        if settings is None:
+            from xref.config import XRefSettings
+            settings = self.settings = XRefSettings()
+        return settings
+
+    def _apply_decimation(self):
+        """Re-reduces the parsed mesh with the current quality setting."""
+
+        parsed = getattr(self, '_parsed', None)
+        if parsed is None:
+            return
+        try:
+            limit = int(self._model_settings().valueOrDefault(
+                'Items/model_max_triangles'))
+        except (TypeError, ValueError):
+            limit = model3d.MAX_TRIANGLES
+        self._mesh = model3d.decimate(parsed, limit)
         self._triangles_total = len(parsed['triangles'])
         self._triangles_shown = len(self._mesh['triangles'])
         self._normals = model3d.face_normals(self._mesh)
         self._render_cache = None
-        return True
+        self.update()
+
+    def reload_mesh(self):
+        """Re-applies the quality setting after it changed."""
+
+        self._apply_decimation()
 
     # -- View state ----------------------------------------------------------
 
@@ -2009,11 +2037,16 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         if cache is None:
             hovering = self._hovered and not self._frame_locked
             current = QtCore.QDateTime.currentMSecsSinceEpoch()
+            try:
+                interval = int(self._model_settings().valueOrDefault(
+                    'Items/model_preview_interval'))
+            except (TypeError, ValueError):
+                interval = self.PREVIEW_INTERVAL_MS
             if (hovering
+                    and interval > 0
                     and self._triangles_shown
                     and self._triangles_shown > 20000
-                    and current - self._last_preview_ms
-                    < self.PREVIEW_INTERVAL_MS):
+                    and current - self._last_preview_ms < interval):
                 # Too soon for a new preview of a heavy mesh
                 return
             image = self._render_projection(rect)

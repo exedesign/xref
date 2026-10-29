@@ -177,6 +177,11 @@ Added
   changed and are also applied to selected strokes; the size stays
   constant on screen at any zoom level. Strokes can be selected, moved,
   restyled and deleted, and are saved in bee files.
+* 3D viewer performance can be tuned in Settings -> 3D Viewer: the
+  maximum number of triangles per model (quality) is applied live to
+  all open models, and the hover preview interval throttles rotation
+  of heavy meshes (0 disables it).
+
 * Huge models stay responsive: meshes are reduced to 25 000 triangles
   (keeping their silhouette) and re-indexed before rendering, the
   projection is cached per view angle, and hover previews of heavy

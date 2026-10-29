@@ -39,6 +39,20 @@ def _repaint_all_views(value):
             view.viewport().update()
 
 
+def _reload_model_meshes(value):
+    """Re-parses the 3D models after a quality change."""
+
+    from xref.view import XRefGraphicsView
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        for view in widget.findChildren(XRefGraphicsView):
+            for item in view.scene.items():
+                if getattr(item, 'is_model', False):
+                    item.reload_mesh()
+
+
 def apply_canvas_color_setting(value):
     """Applies the canvas colour setting to all open views."""
 
@@ -177,6 +191,17 @@ class XRefSettings(QtCore.QSettings):
             'default': False,
             'cast': bool,
             'post_save_callback': _repaint_all_views,
+        },
+        'Items/model_max_triangles': {
+            'default': 25000,
+            'cast': int,
+            'validate': lambda x: 1000 <= x <= 500000,
+            'post_save_callback': _reload_model_meshes,
+        },
+        'Items/model_preview_interval': {
+            'default': 120,
+            'cast': int,
+            'validate': lambda x: 0 <= x <= 1000,
         },
         'Items/image_allocation_limit': {
             'default': 256,

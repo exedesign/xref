@@ -404,6 +404,22 @@ TRANSLATIONS = {
         'Minimize': 'Küçült',
         'Full screen': 'Tam ekran',
         'Close window': 'Pencereyi kapat',
+        '3&D Viewer': '3&D Görüntüleyici',
+        'Model Quality (Triangles):': 'Model Kalitesi (Üçgen):',
+        'Maximum number of triangles rendered per 3D model. Higher '
+        'values look more detailed but rotate slower; lower values '
+        'are faster. Models above the limit keep their silhouette.':
+            'Her 3D model için görüntülenen azami üçgen sayısı. Yüksek '
+            'değerler daha detaylı görünür ama daha yavaş döner; düşük '
+            'değerler daha hızlıdır. Limitin üstündeki modeller '
+            'silüetini korur.',
+        'Model Preview Interval (ms):': 'Model Önizleme Aralığı (ms):',
+        'While rotating a heavy model, the preview is refreshed at '
+        'most this often. 0 disables the throttle (smoothest, but big '
+        'models can lag).':
+            'Ağır bir model döndürülürken önizleme en fazla bu sıklıkla '
+            'yenilenir. 0 kısıtlamayı kapatır (en akıcı, ama büyük '
+            'modeller takılabilir).',
         'Show Media Titles:': 'Medya Başlıklarını Göster:',
         'Show the file name of each image, video and PDF on the '
         'canvas, so references are easier to identify.':
