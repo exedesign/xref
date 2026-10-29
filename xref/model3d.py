@@ -28,6 +28,7 @@ installed; FBX is a closed format and not parsed here.
 """
 
 import logging
+import os.path
 import struct
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 MODEL_EXTENSIONS = ('.obj', '.stl', '.ply', '.fbx', '.glb', '.gltf', '.usdz')
 
 
-def parse_model(data, filename=None):
+def parse_model(data, filename=None, source_path=None):
     """Parses raw model bytes into ``{'vertices', 'triangles'}``.
 
     ``vertices`` is a flat list of xyz floats; ``triangles`` a list of
@@ -56,7 +57,7 @@ def parse_model(data, filename=None):
     if ext == '.ply':
         return _parse_ply(data)
     if ext in ('.glb', '.gltf'):
-        return _parse_gltf(data)
+        return _parse_gltf(data, source_path)
     if ext == '.usdz':
         return _parse_usdz(data)
     if ext == '.fbx':
@@ -294,7 +295,7 @@ def _parse_ply(data):
 COMPONENT_SIZE = {'SCALAR': 4, 'VEC2': 8, 'VEC3': 12, 'VEC4': 16}
 
 
-def _parse_gltf(data):
+def _parse_gltf(data, source_path=None):
     """Parses binary glTF (.glb) and .gltf files.
 
     Only the POSITION attribute and the index accessor are needed; the
@@ -344,6 +345,14 @@ def _parse_gltf(data):
         elif bin_data is not None:
             buffers.append(bin_data[:buffer.get('byteLength',
                                                 len(bin_data))])
+        elif source_path:
+            sibling = os.path.join(
+                os.path.dirname(source_path), uri.lstrip('./'))
+            if os.path.isfile(sibling):
+                with open(sibling, 'rb') as f:
+                    buffers.append(f.read())
+            else:
+                buffers.append(None)
         else:
             buffers.append(None)
 
@@ -424,37 +433,10 @@ def _parse_usdz(data):
     if usda is not None:
         return _parse_usda(_decode(archive.read(usda)))
 
-    # No ASCII payload: try pyassimp for USDC (or FBX-in-zip) content
-    try:
-        import pyassimp
-        import os
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix='.usdz',
-                                         delete=False) as tmp:
-            tmp.write(data)
-            path = tmp.name
-        try:
-            with pyassimp.load(path) as scene:
-                vertices = []
-                triangles = []
-                for mesh in scene.meshes:
-                    base = len(vertices) // 3
-                    for v in mesh.vertices:
-                        vertices.extend(
-                            (float(v[0]), float(v[1]), float(v[2])))
-                    for face in mesh.faces:
-                        for i in range(1, len(face) - 1):
-                            triangles.append(
-                                (face[0] + base, face[i] + base,
-                                 face[i + 1] + base))
-                if triangles:
-                    return {'vertices': vertices, 'triangles': triangles}
-        finally:
-            os.unlink(path)
-    except ImportError:
-        pass
-    raise ValueError('USDZ archive has no .usda payload and pyassimp '
-                     'is not installed')
+    # No ASCII payload: USDC needs the assimp library; give a clear hint
+    raise ValueError(
+        'This USDZ file stores its mesh as binary USDC, which needs the '
+        'assimp library. Convert it to OBJ/GLB, or install assimp.')
 
 
 def _parse_usda(text):
@@ -498,43 +480,212 @@ def _parse_usda(text):
     return {'vertices': vertices, 'triangles': triangles}
 
 
-# -- FBX (optional via pyassimp) ----------------------------------------------
+# -- FBX (binary) ---------------------------------------------------------------
 
 def _parse_fbx(data):
-    try:
-        import pyassimp  # noqa: F401 - optional dependency
-    except ImportError:
-        raise ValueError(
-            'FBX support needs the optional pyassimp package')
-    import tempfile
-    import os
-    with tempfile.NamedTemporaryFile(suffix='.fbx', delete=False) as tmp:
-        tmp.write(data)
-        path = tmp.name
-    try:
-        with pyassimp.load(path) as scene:
-            vertices = []
-            triangles = []
-            for mesh in scene.meshes:
-                base = len(vertices) // 3
-                verts = mesh.vertices
-                for i in range(len(verts)):
-                    vertices.append(float(verts[i][0]))
-                    vertices.append(float(verts[i][1]))
-                    vertices.append(float(verts[i][2]))
-                faces = mesh.faces
-                for face in faces:
-                    count = len(face)
-                    for i in range(1, count - 1):
+    """Parses binary FBX 7.x files (Kaydara FBX Binary header).
+
+    The node records are walked recursively until the Geometry nodes;
+    ``Vertices`` (doubles) and ``PolygonVertexIndex`` (int32, last index
+    of each polygon XOR-encoded as -i-1) are turned into vertices and
+    fan-triangulated triangles. ASCII FBX files are not supported.
+    """
+
+    if data[:20] != b'Kaydara FBX Binary  ':
+        raise ValueError('ASCII FBX files are not supported; '
+                         'export as binary FBX, OBJ or GLB instead')
+    if len(data) < 27:
+        raise ValueError('FBX file too short')
+    version = struct.unpack_from('<I', data, 23)[0]
+    wide = version >= 7500  # 64-bit offsets in newer files
+
+    vertices = []
+    triangles = []
+
+    def walk(offset, end, depth=0, in_geometry=False):
+        while offset < end:
+            if offset + (25 if wide else 13) > end:
+                break
+            if wide:
+                # FBX 7.5+: u64 end, u32 prop_count, u64 prop_list_len,
+                # u8 name_len
+                node_end = struct.unpack_from('<Q', data, offset)[0]
+                prop_count = struct.unpack_from('<I', data, offset + 8)[0]
+                prop_len = struct.unpack_from('<Q', data, offset + 16)[0]
+                name_len = data[offset + 24]
+                pos = offset + 25
+            else:
+                node_end, prop_count, prop_len = struct.unpack_from(
+                    '<III', data, offset)
+                name_len = data[offset + 12]
+                pos = offset + 13
+            if node_end <= offset or node_end > len(data):
+                break
+            name = data[pos:pos + name_len]
+            pos += name_len
+            # Skip the properties; we only need nested Geometry nodes
+            child_start = pos + prop_len
+            if name == b'Geometry':
+                parse_geometry(child_start, node_end)
+            elif prop_count == 0 and child_start < node_end:
+                # Geometry nodes sit at various nesting levels; keep
+                # walking until one is found
+                walk(child_start, node_end, depth + 1)
+            offset = node_end
+
+    def read_properties(offset, count):
+        """Reads property records starting at offset."""
+
+        values = []
+        for _ in range(count):
+            if offset >= len(data):
+                break
+            type_code = data[offset:offset + 1]
+            offset += 1
+            if type_code in (b'Y',):
+                values.append(struct.unpack_from('<h', data, offset)[0])
+                offset += 2
+            elif type_code in (b'C', b'B'):
+                values.append(bool(data[offset]))
+                offset += 1
+            elif type_code in (b'I',):
+                values.append(struct.unpack_from('<i', data, offset)[0])
+                offset += 4
+            elif type_code in (b'F',):
+                values.append(struct.unpack_from('<f', data, offset)[0])
+                offset += 4
+            elif type_code in (b'D',):
+                values.append(struct.unpack_from('<d', data, offset)[0])
+                offset += 8
+            elif type_code in (b'L',):
+                values.append(struct.unpack_from('<q', data, offset)[0])
+                offset += 8
+            elif type_code in (b'f', b'd', b'l', b'i', b'b'):
+                # arrays: length, encoding, compressed length, payload
+                array_len, encoding, comp_len = struct.unpack_from(
+                    '<III', data, offset)
+                offset += 12
+                payload = data[offset:offset + comp_len]
+                offset += comp_len
+                fmt = {b'f': 'f', b'd': 'd', b'l': 'q', b'i': 'i',
+                       b'b': 'B'}[type_code]
+                if encoding == 1:
+                    import zlib
+                    payload = zlib.decompress(payload)
+                size = {b'f': 4, b'd': 8, b'l': 8, b'i': 4, b'b': 1}[
+                    type_code]
+                if len(payload) >= array_len * size:
+                    values.append(struct.unpack_from(
+                        '<%d%s' % (array_len, fmt), payload, 0))
+            elif type_code in (b'S',):
+                length = struct.unpack_from('<I', data, offset)[0]
+                offset += 4
+                values.append(data[offset:offset + length])
+                offset += length
+            else:
+                break
+        return values, offset
+
+    def parse_geometry(offset, end):
+        geo_vertices = None
+        geo_indices = None
+        while offset < end:
+            if offset + (25 if wide else 13) > end:
+                break
+            if wide:
+                node_end = struct.unpack_from('<Q', data, offset)[0]
+                prop_count = struct.unpack_from('<I', data, offset + 8)[0]
+                prop_len = struct.unpack_from('<Q', data, offset + 16)[0]
+                name_len = data[offset + 24]
+                pos = offset + 25
+            else:
+                node_end, prop_count, prop_len = struct.unpack_from(
+                    '<III', data, offset)
+                name_len = data[offset + 12]
+                pos = offset + 13
+            if node_end <= offset or node_end > len(data):
+                break
+            name = data[pos:pos + name_len]
+            pos += name_len
+            props_start = pos
+            if name == b'Vertices' and prop_count == 1:
+                values, _ = read_properties(props_start, 1)
+                if values and isinstance(values[0], tuple):
+                    geo_vertices = list(values[0])
+            elif name == b'PolygonVertexIndex' and prop_count == 1:
+                values, _ = read_properties(props_start, 1)
+                if values and isinstance(values[0], tuple):
+                    geo_indices = list(values[0])
+            offset = node_end
+        if not geo_vertices or not geo_indices:
+            return
+        base = len(vertices) // 3
+        vertices.extend(float(v) for v in geo_vertices)
+        polygon = []
+        for index in geo_indices:
+            if index < 0:
+                # FBX encodes the last index of a polygon as -i - 1
+                polygon.append(-index - 1)
+                if len(polygon) >= 3:
+                    for i in range(1, len(polygon) - 1):
                         triangles.append(
-                            (face[0] + base, face[i] + base,
-                             face[i + 1] + base))
-        return {'vertices': vertices, 'triangles': triangles}
-    finally:
-        os.unlink(path)
+                            (polygon[0] + base, polygon[i] + base,
+                             polygon[i + 1] + base))
+                polygon = []
+            else:
+                polygon.append(index)
+
+    walk(27, len(data))
+    if not triangles:
+        raise ValueError('FBX file has no mesh data')
+    return {'vertices': vertices, 'triangles': triangles}
 
 
 # -- Geometry helpers ----------------------------------------------------------
+
+#: Models above this many triangles are reduced before rendering, so even
+#: multi-million-triangle exports stay responsive in the software renderer
+MAX_TRIANGLES = 25000
+
+
+def decimate(mesh, max_triangles=MAX_TRIANGLES):
+    """Reduces the triangle count by keeping every n-th triangle.
+
+    The kept triangles are re-indexed onto only the vertices they use, so
+    the projection and shading loops scale with the kept triangles, not
+    with the size of the original mesh. The overall silhouette stays the
+    same, which is enough for a reference board.
+    """
+
+    triangles = mesh['triangles']
+    if len(triangles) <= max_triangles:
+        return mesh
+    step = len(triangles) / float(max_triangles)
+    kept = []
+    index = 0.0
+    while int(index) < len(triangles):
+        kept.append(triangles[int(index)])
+        index += step
+    vertices = mesh['vertices']
+    remap = {}
+    new_vertices = []
+    new_triangles = []
+    for a, b, c in kept:
+        corner = []
+        for old in (a, b, c):
+            new = remap.get(old)
+            if new is None:
+                new = len(new_vertices) // 3
+                remap[old] = new
+                new_vertices.extend(
+                    (vertices[old * 3], vertices[old * 3 + 1],
+                     vertices[old * 3 + 2]))
+            corner.append(new)
+        new_triangles.append(tuple(corner))
+    return {'vertices': new_vertices, 'triangles': new_triangles}
+
+
+
 
 def bounding_box(mesh):
     """The (min, max) xyz corners of the mesh."""

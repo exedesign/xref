@@ -1652,6 +1652,8 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
     DEFAULT_SIZE = (480, 480)
     CONTROLS_HEIGHT = 24
     CONTROLS_MARGIN = 8
+    #: Heavy meshes are re-rendered at most this often while hovering
+    PREVIEW_INTERVAL_MS = 120
 
     def __init__(self, model_path=None, filename=None, size=None,
                  mesh=None, yaw=30, pitch=20, zoom=1.0, **kwargs):
@@ -1682,9 +1684,13 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self._frame_locked = False
         self._click_pos = None
         self._dragging_rotation = None
+        self._render_zoom = self._zoom
+        self._render_cache = None
+        self._triangles_total = None
+        self._triangles_shown = None
+        self._load_error = None
+        self._last_preview_ms = 0
         self._refresh_tooltip()
-        if self._mesh is not None:
-            self._build_projection_cache()
         logger.debug(f'Initialized {self}')
 
     def __str__(self):
@@ -1763,17 +1769,22 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             with open(path, 'rb') as f:
                 data = f.read()
             self.model_bytes = data
+        source = (self.model_path
+                  if self.model_path and os.path.isfile(self.model_path)
+                  else self._temp_model_file)
         try:
-            self._mesh = model3d.parse_model(data, self.filename)
+            parsed = model3d.parse_model(data, self.filename, source)
         except ValueError as e:
             logger.info(f'Could not load 3D model {self.filename}: {e}')
+            self._load_error = str(e)
             return False
+        self._load_error = None
+        self._mesh = model3d.decimate(parsed)
+        self._triangles_total = len(parsed['triangles'])
+        self._triangles_shown = len(self._mesh['triangles'])
         self._normals = model3d.face_normals(self._mesh)
-        self._build_projection_cache()
+        self._render_cache = None
         return True
-
-    def _build_projection_cache(self):
-        self._frame = None
 
     # -- View state ----------------------------------------------------------
 
@@ -1781,18 +1792,30 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         return (self._current_yaw, self._current_pitch, self._zoom)
 
     def set_view(self, yaw=None, pitch=None, zoom=None, pin=True):
+        changed = False
         if yaw is not None:
-            self._current_yaw = float(yaw) % 360 if pin \
-                else self._current_yaw
-            self._display_yaw = float(yaw) % 360
-        if pitch is not None:
+            value = float(yaw) % 360
             if pin:
-                self._current_pitch = max(-89.0, min(89.0, float(pitch)))
-            self._display_pitch = max(-89.0, min(89.0, float(pitch)))
+                self._current_yaw = value
+            if value != self._display_yaw:
+                self._display_yaw = value
+                changed = True
+        if pitch is not None:
+            value = max(-89.0, min(89.0, float(pitch)))
+            if pin:
+                self._current_pitch = value
+            if value != self._display_pitch:
+                self._display_pitch = value
+                changed = True
         if zoom is not None:
             value = max(0.05, min(8.0, float(zoom)))
             if pin:
                 self._zoom = value
+            if value != self._render_zoom:
+                self._render_zoom = value
+                changed = True
+        if changed:
+            self._render_cache = None
         self.update()
 
     def release_mesh(self):
@@ -1968,72 +1991,138 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
                          tr('3D model could not be loaded'))
 
     def _paint_model(self, painter, rect):
-        """Projects and shades the mesh with the current view angles."""
+        """Draws the cached projection of the mesh.
 
+        The mesh is rendered offscreen into a QImage. Rotating only
+        invalidates the cache; while the mouse keeps moving, previews are
+        refreshed at most PREVIEW_INTERVAL_MS apart so huge meshes stay
+        responsive.
+        """
+
+        if self._mesh is None:
+            return
+        cache = self._render_cache
+        if cache is not None:
+            key, image = cache
+            if key != self._render_key():
+                cache = None
+        if cache is None:
+            hovering = self._hovered and not self._frame_locked
+            current = QtCore.QDateTime.currentMSecsSinceEpoch()
+            if (hovering
+                    and self._triangles_shown
+                    and self._triangles_shown > 20000
+                    and current - self._last_preview_ms
+                    < self.PREVIEW_INTERVAL_MS):
+                # Too soon for a new preview of a heavy mesh
+                return
+            image = self._render_projection(rect)
+            self._render_cache = (self._render_key(), image)
+            if hovering:
+                self._last_preview_ms = current
+        painter.drawImage(rect, image)
+
+    def _render_key(self):
+        return (round(self._display_yaw, 1), round(self._display_pitch, 1),
+                round(self._render_zoom, 3),
+                int(self._width), int(self._height))
+
+    def _render_projection(self, rect):
+        """Renders the mesh into an image of the item's size."""
+
+        width, height = max(2, int(self._width)), max(2, int(self._height))
+        image = QtGui.QImage(width, height, QtGui.QImage.Format.Format_RGB32)
+        image.fill(QtGui.QColor(30, 30, 34))
+        painter = QtGui.QPainter(image)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        self._draw_mesh(painter, QtCore.QRectF(0, 0, width, height))
+        painter.end()
+        return image
+
+    def _draw_mesh(self, painter, rect):
+        """Projects and shades the mesh with the current view angles.
+
+        Triangles are grouped into a handful of brightness bands and drawn
+        as a few merged paths, so even tens of thousands of triangles need
+        only a couple of draw calls instead of one per triangle.
+        """
+
+        import math
         mesh = self._mesh
         v = mesh['vertices']
         (minx, miny, minz), (maxx, maxy, maxz) = model3d.bounding_box(mesh)
         cx, cy, cz = ((minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2)
         span = max(maxx - minx, maxy - miny, maxz - minz) or 1.0
-        scale = 0.42 * min(self._width, self._height) / span * self._zoom
+        scale = 0.42 * min(rect.width(), rect.height()) / span \
+            * self._render_zoom
 
-        import math
         yaw = math.radians(self._display_yaw)
         pitch = math.radians(self._display_pitch)
         cos_y, sin_y = math.cos(yaw), math.sin(yaw)
         cos_p, sin_p = math.cos(pitch), math.sin(pitch)
-        eye_x, eye_y, eye_z = 0.0, 0.0, 1.0
 
-        # Project all vertices
+        # Project all vertices once (tight loop, everything precomputed)
+        origin_x = rect.center().x()
+        origin_y = rect.center().y()
+        # Scale each axis after subtracting the mesh center
+        sx, sy, sz = (scale, scale, scale)
         projected = []
         depth_of = []
-        for i in range(len(v) // 3):
-            x = (v[i * 3] - cx) * scale
-            y = (v[i * 3 + 1] - cy) * scale
-            z = (v[i * 3 + 2] - cz) * scale
-            # Yaw around Z, pitch around X
-            rx = x * cos_y - y * sin_y
-            ry = x * sin_y + y * cos_y
-            rz = z
-            ry2 = ry * cos_p - rz * sin_p
-            rz2 = ry * sin_p + rz * cos_p
-            px = rect.center().x() + rx
-            py = rect.center().y() - ry2
-            depth = rz2
-            projected.append((px, py))
-            depth_of.append(depth)
+        append_p = projected.append
+        append_d = depth_of.append
+        idx = 0
+        count = len(v)
+        while idx < count:
+            # yaw around Z, then pitch around X
+            dx = v[idx] - cx
+            dy = v[idx + 1] - cy
+            dz = v[idx + 2] - cz
+            rx = dx * cos_y - dy * sin_y
+            ry = dx * sin_y + dy * cos_y
+            ry2 = ry * cos_p - dz * sin_p
+            append_p((origin_x + rx * sx, origin_y - ry2 * sy))
+            append_d(ry * sin_p + dz * cos_p)
+            idx += 3
 
-        # Painter's algorithm: far triangles first
+        triangles = mesh['triangles']
         order = sorted(
-            range(len(mesh['triangles'])),
-            key=lambda t: (depth_of[mesh['triangles'][t][0]]
-                           + depth_of[mesh['triangles'][t][1]]
-                           + depth_of[mesh['triangles'][t][2]]))
+            range(len(triangles)),
+            key=lambda t: depth_of[triangles[t][0]]
+            + depth_of[triangles[t][1]] + depth_of[triangles[t][2]])
 
-        base = QtGui.QColor(120, 150, 200)
+        # Precompute rotated normal z for shading
+        bands = 12
+        band_of = []
+        rcp, rsp = cos_p, sin_p
+        normals = self._normals
+        for nx, ny, nz in normals:
+            rny = nx * sin_y + ny * cos_y
+            rnz2 = rny * rsp + nz * rcp
+            light = 0.55 + 0.45 * rnz2
+            if light < 0.0:
+                light = 0.0
+            elif light > 1.0:
+                light = 1.0
+            band_of.append(int(light * (bands - 1)))
+
+        paths = [QtGui.QPainterPath() for _ in range(bands)]
         for index in order:
-            a, b, c = mesh['triangles'][index]
-            if index < len(self._normals):
-                nx, ny, nz = self._normals[index]
-                # Rotate the normal like the vertices, then take the
-                # amount facing the viewer for lambert shading
-                rnx = nx * cos_y - ny * sin_y
-                rny = nx * sin_y + ny * cos_y
-                rny2 = rny * cos_p - nz * sin_p
-                rnz2 = rny * sin_p + nz * cos_p
-                light = max(0.25, min(
-                    1.0, 0.55 + 0.45 * (rnz2 * eye_z)))
-            else:
-                light = 0.7
+            a, b, c = triangles[index]
+            path = paths[band_of[index] if index < len(band_of) else 8]
+            path.moveTo(*projected[a])
+            path.lineTo(*projected[b])
+            path.lineTo(*projected[c])
+            path.closeSubpath()
+
+        base = (120, 150, 200)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for band, path in enumerate(paths):
+            light = band / float(bands - 1)
             color = QtGui.QColor(
-                int(base.red() * light), int(base.green() * light),
-                int(base.blue() * light))
-            painter.setPen(QtGui.QPen(color, 1))
+                int(base[0] * light), int(base[1] * light),
+                int(base[2] * light))
             painter.setBrush(color)
-            painter.drawPolygon(
-                QtCore.QPointF(*projected[a]),
-                QtCore.QPointF(*projected[b]),
-                QtCore.QPointF(*projected[c]))
+            painter.drawPath(path)
 
     def _paint_controls(self, painter):
         rect = self._controls_rect()

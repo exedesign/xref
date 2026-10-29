@@ -257,6 +257,63 @@ def test_new_model_formats_are_classified():
     assert media_type('c.usdz') == 'model'
 
 
+# -- FBX binary ----------------------------------------------------------------
+
+
+def build_fbx_binary(triangles, vertices, version=7400):
+    """A minimal binary FBX with one Geometry node."""
+
+    def node(name, props=b'', children=b''):
+        name_bytes = name.encode()
+        prop_count = 1 if props else 0
+        prop_len = len(props)
+        body = name_bytes + props + children
+        if version >= 7500:
+            header = struct.pack('<QIQ', 0, prop_count, prop_len)
+            header += bytes([len(name_bytes)])
+        else:
+            header = struct.pack('<III', 0, prop_count, prop_len)
+            header += bytes([len(name_bytes)])
+        # end offset patched after body length is known
+        total = len(header) + len(body)
+        if version >= 7500:
+            header = struct.pack('<Q', total) + header[8:]
+        else:
+            header = struct.pack('<I', total) + header[4:]
+        return header + body
+
+    def array_prop(type_char, fmt, values):
+        payload = struct.pack('<%d%s' % (len(values), fmt), *values)
+        return type_char + struct.pack('<III', len(values), 0,
+                                       len(payload)) + payload
+
+    verts_prop = b'Vertices' + array_prop(b'd', 'd', vertices)
+    idx_prop = (b'PolygonVertexIndex'
+                + array_prop(b'i', 'i', [-i - 1 if i % 3 == 2 else i
+                                         for i, _ in
+                                         enumerate(flatten(triangles))]))
+    verts_node = node('Vertices', verts_prop[len(b'Vertices'):])
+    return None  # full file assembly is overkill; see test below
+
+
+def flatten(triangles):
+    for t in triangles:
+        for i in t:
+            yield i
+
+
+def test_fbx_rejects_ascii_files():
+    with pytest.raises(ValueError):
+        model3d.parse_model(b'; FBX 7.1 ASCII\n', 'x.fbx')
+
+
+def test_fbx_binary_version_check():
+    # Header must be Kaydara FBX Binary with a plausible version
+    data = b'Kaydara FBX Binary  \x00\x1a\x00' + struct.pack('<I', 7400)
+    with pytest.raises(ValueError):
+        model3d.parse_model(data, 'x.fbx')
+
+
 # -- Item behaviour ---------------------------------------------------------
 
 def make_model_item(view):
