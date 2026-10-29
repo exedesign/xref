@@ -57,9 +57,11 @@ Added
   Buttons Delay) and fade away again when the pointer leaves. The close
   button asks before unsaved changes are discarded.
 * The canvas no longer slides when the window is resized, maximised or
-  switched to full screen: the middle of the view stays where it was, and
-  while a window edge is dragged the point under the pointer stays under
-  the pointer.
+  switched to full screen: the middle of the view stays in the middle (and
+  while a window edge is dragged, the point under the pointer stays under
+  the pointer). Full screen changes are corrected again a few times after
+  the window manager has settled, so repeated full screen/normal round
+  trips don't accumulate any offset.
 * An empty board is fully usable: the window can be moved and resized from
   its edges through the welcome screen, and the canvas can already be
   panned and zoomed before the first image is added.

@@ -340,10 +340,44 @@ class XRefGraphicsView(MainControlsMixin,
         self.fit_rect(self.scene.itemsBoundingRect(selection_only=True))
 
     def on_action_fullscreen(self, checked):
+        centre = self.view_centre_scene()
         if checked:
             self.parent.showFullScreen()
         else:
             self.parent.showNormal()
+        self.schedule_recentre(centre)
+
+    def view_centre_scene(self):
+        """The scene point in the middle of the viewport."""
+
+        viewport = self.viewport()
+        return self.viewport_to_scene(
+            QtCore.QPointF(viewport.width() / 2, viewport.height() / 2))
+
+    def recentre_to(self, scene_point):
+        """Puts the given scene point back into the middle of the view."""
+
+        if scene_point is None:
+            return
+        # Make sure the scene rectangle has room before scrolling
+        self.recalc_scene_rect()
+        viewport = self.viewport()
+        self.scroll_scene_point_to(
+            scene_point, QtCore.QPointF(viewport.width() / 2,
+                                        viewport.height() / 2))
+
+    def schedule_recentre(self, scene_point, delays=(0, 80, 250)):
+        """Re-centres the canvas after an asynchronous window change.
+
+        The window manager reports the new geometry in several steps (and
+        sometimes late), so the view is corrected a few times.
+        """
+
+        if scene_point is None:
+            return
+        for delay in delays:
+            QtCore.QTimer.singleShot(
+                delay, partial(self.recentre_to, scene_point))
 
     def is_frameless(self):
         """Whether the window has no OS title bar (PureRef-like look)."""
@@ -1923,23 +1957,20 @@ class XRefGraphicsView(MainControlsMixin,
 
     def resizeEvent(self, event):
         old = event.oldSize()
-        anchor = None
+        pointer_anchor = None
         centre = None
         if old.width() > 0 and old.height() > 0:
-            # The canvas must not slide when the window is resized or when
-            # it goes full screen: keep the middle of the view where it was
+            # The canvas must not slide when the window is resized: the
+            # point in the middle of the view stays in the middle (while an
+            # edge is dragged, the point under the pointer stays put)
             centre = self.viewport_to_scene(
                 QtCore.QPointF(old.width() / 2, old.height() / 2))
             if self._native_resize_active:
-                # While dragging an edge, keep the point under the pointer
-                anchor = self.resize_anchor()
+                pointer_anchor = self.resize_anchor()
         super().resizeEvent(event)
-        if centre is not None:
-            self.scroll_scene_point_to(
-                centre, QtCore.QPointF(self.viewport().width() / 2,
-                                       self.viewport().height() / 2))
-        if anchor is not None:
-            self.restore_resize_anchor(anchor)
+        self.recentre_to(centre)
+        if pointer_anchor is not None:
+            self.restore_resize_anchor(pointer_anchor)
         # The scene rectangle is expanded around the new view position, so
         # it has to be recalculated after the canvas was anchored
         self.recalc_scene_rect()

@@ -1074,6 +1074,66 @@ def test_resize_keeps_the_canvas_centre(view):
         assert abs(pixel.y() - view.viewport().height() / 2) < 2
 
 
+def pump_events(qapp, ms=400):
+    timer = QtCore.QElapsedTimer()
+    timer.start()
+    while timer.elapsed() < ms:
+        qapp.processEvents()
+        QtCore.QThread.msleep(5)
+
+
+def add_board_items(view):
+    for i in range(3):
+        item = XRefPixmapItem(QtGui.QImage(
+            300, 300, QtGui.QImage.Format.Format_ARGB32))
+        view.scene.addItem(item)
+        item.setPos(1000 + i * 400, 1000)
+    view.on_action_fit_scene()
+
+
+def centre_drift(view, scene_point):
+    viewport = view.viewport()
+    pixel = view.scene_to_viewport(scene_point)
+    return (pixel.x() - viewport.width() / 2,
+            pixel.y() - viewport.height() / 2)
+
+
+def test_fullscreen_round_trip_keeps_the_canvas(view, qapp):
+    add_board_items(view)
+    reference = view.view_centre_scene()
+
+    view.toggle_fullscreen()
+    pump_events(qapp)
+    assert abs(centre_drift(view, reference)[0]) < 2
+    assert abs(centre_drift(view, reference)[1]) < 2
+
+    view.toggle_fullscreen()
+    pump_events(qapp)
+    assert abs(centre_drift(view, reference)[0]) < 2
+    assert abs(centre_drift(view, reference)[1]) < 2
+
+    # A second round trip must not accumulate any offset
+    view.toggle_fullscreen()
+    pump_events(qapp)
+    view.toggle_fullscreen()
+    pump_events(qapp)
+    assert abs(centre_drift(view, reference)[0]) < 2
+    assert abs(centre_drift(view, reference)[1]) < 2
+
+
+def test_maximise_keeps_the_canvas_centred(view, qapp):
+    add_board_items(view)
+    reference = view.view_centre_scene()
+    view.parent.showMaximized()
+    pump_events(qapp)
+    assert abs(centre_drift(view, reference)[0]) < 2
+    assert abs(centre_drift(view, reference)[1]) < 2
+    view.parent.showNormal()
+    pump_events(qapp)
+    assert abs(centre_drift(view, reference)[0]) < 2
+    assert abs(centre_drift(view, reference)[1]) < 2
+
+
 def test_welcome_overlay_moves_and_resizes_the_window(view):
     overlay = view.welcome_overlay
     assert overlay.isVisible()
