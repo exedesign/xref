@@ -123,6 +123,15 @@ class BeeSettings(QtCore.QSettings):
             'default': True,
             'cast': bool,
         },
+        'Save/autosave': {
+            'default': False,
+            'cast': bool,
+        },
+        'Save/autosave_interval': {
+            'default': 2,
+            'cast': int,
+            'validate': lambda x: 1 <= x <= 120,
+        },
         'Items/image_storage_format': {
             'default': 'best',
             'validate': lambda x: x in ('png', 'jpg', 'webp', 'best'),

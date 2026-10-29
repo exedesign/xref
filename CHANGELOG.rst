@@ -41,6 +41,20 @@ Added
   browser are inserted as text. Images, videos and .bee files keep
   working as before, and unsupported drops now give a clear message
   instead of failing silently.
+* Shared boards keep working when the host goes away: the host
+  designates a successor, which continues the session under the same
+  session code and the other peers reconnect to it automatically. When
+  the host stops sharing on purpose, the session ends for everyone.
+* Shared media is distributed to every peer in its original form:
+  images keep their original resolution (the old 2400 px downscale is
+  gone) and their original file bytes, videos are copied to every
+  machine so they can be played there, and large files are streamed in
+  chunks with checksums. Crop and grayscale are shared as flags, so
+  every machine shows the same thing.
+* Added autosave (Settings -> Miscellaneous -> Autosave) with a
+  configurable interval, so long sessions are not lost. Autosave only
+  writes boards that already have a file and never interrupts with
+  dialogs.
 * Added shared board sessions (Collaborate menu), so several BeeRef
   installations on the same network can work on one board together -
   the idea is similar to PowerToys' "Mouse Without Borders", but sharing

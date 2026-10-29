@@ -44,6 +44,7 @@ import uuid
 
 from PyQt6 import QtCore, QtGui, QtNetwork
 
+from beeref.i18n import tr
 from beeref.items import BeeDrawItem, BeePixmapItem, BeeTextItem, \
     BeeVideoItem, item_registry
 
@@ -54,8 +55,6 @@ DEFAULT_PORT = 48620
 DISCOVERY_PORT = 48621
 PROTOCOL_VERSION = 2
 SYNC_INTERVAL_MS = 250
-# Images larger than this are scaled down before being sent
-MAX_IMAGE_EDGE = 2400
 
 # Pairing code: 10 characters from an unambiguous alphabet (no 0/O/1/I),
 # displayed as XXXXX-XXXXX
@@ -67,6 +66,16 @@ DISCOVERY_PREFIX = b'beeref-discover|'
 OFFER_PREFIX = b'beeref-offer|'
 
 MAX_PEERS = 16
+# Host migration: the successor starts immediately, everyone else keeps
+# trying to reconnect before considering taking over themselves
+RECOVER_DELAY_MS = 900
+RECOVER_RETRY_MS = 1200
+RECOVER_ATTEMPTS = 10
+# Media is shared in its *original* form. Small files travel inline with the
+# item state, larger ones are streamed in chunks.
+ASSET_INLINE_LIMIT = 4 * 1024 * 1024
+ASSET_CHUNK_SIZE = 256 * 1024
+MAX_ASSET_SIZE = 256 * 1024 * 1024
 MAX_LINE_BYTES = 96 * 1024 * 1024
 MAX_FAILED_ATTEMPTS = 5
 FAILED_ATTEMPT_WINDOW = 600  # seconds
@@ -197,24 +206,133 @@ def unseal(keys, message):
 
 # -- Serialisation ---------------------------------------------------------
 
-def _image_to_base64(image):
-    if image.width() > MAX_IMAGE_EDGE or image.height() > MAX_IMAGE_EDGE:
-        image = image.scaled(
-            MAX_IMAGE_EDGE, MAX_IMAGE_EDGE,
-            QtCore.Qt.AspectRatioMode.KeepAspectRatio,
-            QtCore.Qt.TransformationMode.SmoothTransformation)
+def _sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def _png_bytes(image):
+    """Encodes an image losslessly as PNG."""
+
     buffer = QtCore.QBuffer()
     buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
     image.save(buffer, 'PNG')
-    return base64.b64encode(bytes(buffer.data())).decode('ascii')
+    return bytes(buffer.data())
 
 
-def _image_from_base64(data):
-    if not data:
-        return QtGui.QImage()
-    image = QtGui.QImage()
-    image.loadFromData(base64.b64decode(data), 'PNG')
-    return image
+def asset_cache_dir():
+    """Where media received from peers is stored."""
+
+    base = QtCore.QStandardPaths.writableLocation(
+        QtCore.QStandardPaths.StandardLocation.AppLocalDataLocation)
+    if not base:
+        base = os.path.join(os.path.expanduser('~'), '.beeref')
+    path = os.path.join(base, 'shared_assets')
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError:
+        return os.path.join(os.path.expanduser('~'), '.beeref-assets')
+    return path
+
+
+def item_asset_bytes(item):
+    """The original bytes of an item's media, or None.
+
+    The original file is preferred so that every machine receives exactly
+    what was imported. Images without a source file (pasted, edited) are
+    sent as lossless PNG of their full pixels; crop/grayscale are shared
+    as flags and re-applied on the receiving side.
+    """
+
+    if item.TYPE == BeePixmapItem.TYPE:
+        original = getattr(item, 'original_bytes', None)
+        if original:
+            return original
+        filename = getattr(item, 'filename', None)
+        if filename and os.path.isfile(filename):
+            try:
+                with open(filename, 'rb') as f:
+                    return f.read()
+            except OSError:
+                pass
+        image = item.pixmap().toImage()
+        if image.isNull():
+            return None
+        return _png_bytes(image)
+    if item.TYPE == BeeVideoItem.TYPE:
+        if item.has_source_file():
+            try:
+                with open(item.video_path, 'rb') as f:
+                    return f.read()
+            except OSError:
+                return None
+        return getattr(item, 'video_bytes', None)
+    return None
+
+
+def _asset_meta(data, name, kind):
+    return {
+        'sha': _sha256(data),
+        'size': len(data),
+        'name': name or (f'{kind}.bin'),
+        'kind': kind,
+    }
+
+
+def store_asset(sha, data, name):
+    """Stores media in the local asset cache and returns its path."""
+
+    path = find_cached_asset(sha)
+    if path:
+        return path
+    extension = os.path.splitext(name or '')[1].lower()
+    if not extension or len(extension) > 6:
+        extension = ''
+    path = os.path.join(asset_cache_dir(), sha + extension)
+    try:
+        with open(path, 'wb') as f:
+            f.write(data)
+    except OSError as e:
+        logger.info(f'Collaboration: could not store media: {e}')
+        return None
+    return path
+
+
+def find_cached_asset(sha):
+    """The cached file for an asset hash, or None."""
+
+    if not sha:
+        return None
+    folder = asset_cache_dir()
+    try:
+        for entry in os.listdir(folder):
+            if entry.startswith(sha):
+                return os.path.join(folder, entry)
+    except OSError:
+        pass
+    return None
+
+
+def _state_media_bytes(state, kind):
+    """Media bytes contained in (or already cached for) an item state."""
+
+    asset = state.get('asset') or {}
+    inline = asset.get('inline')
+    if inline:
+        try:
+            return base64.b64decode(inline)
+        except (ValueError, TypeError):
+            return None
+    sha = asset.get('sha')
+    if not sha:
+        return None
+    path = find_cached_asset(sha)
+    if path:
+        try:
+            with open(path, 'rb') as f:
+                return f.read()
+        except OSError:
+            return None
+    return None
 
 
 def item_state(item, include_image=True):
@@ -232,16 +350,34 @@ def item_state(item, include_image=True):
     }
     if item.TYPE == BeePixmapItem.TYPE:
         state['filename'] = item.filename
+        size = item.pixmap().size()
+        state['size'] = [size.width(), size.height()]
+        state['grayscale'] = bool(getattr(item, 'grayscale', False))
+        crop = getattr(item, 'crop', None)
+        if crop is not None:
+            state['crop'] = [crop.x(), crop.y(), crop.width(),
+                             crop.height()]
         if include_image:
-            state['image'] = _image_to_base64(item.pixmap().toImage())
+            data = item_asset_bytes(item)
+            if data:
+                state['asset'] = _asset_meta(data, item.filename, 'image')
+                if len(data) <= ASSET_INLINE_LIMIT:
+                    state['asset']['inline'] = base64.b64encode(
+                        data).decode('ascii')
     elif item.TYPE == BeeVideoItem.TYPE:
         state['filename'] = item.filename
-        state['video_path'] = item.video_path
         state['size'] = list(item.size)
         state['duration'] = item.duration
         state['position'] = int(item._current_position)
         state['volume'] = round(item.volume, 3)
         state['muted'] = item.is_muted
+        if include_image:
+            data = item_asset_bytes(item)
+            if data:
+                state['asset'] = _asset_meta(data, item.filename, 'video')
+                if len(data) <= ASSET_INLINE_LIMIT:
+                    state['asset']['inline'] = base64.b64encode(
+                        data).decode('ascii')
     elif item.TYPE == BeeTextItem.TYPE:
         state['text'] = item.toPlainText()
         width = item.textWidth()
@@ -270,12 +406,25 @@ def create_item_from_state(state):
 
     itype = state.get('type')
     if itype == BeePixmapItem.TYPE:
-        image = _image_from_base64(state.get('image'))
+        data = _state_media_bytes(state, 'image')
+        image = QtGui.QImage()
+        if data:
+            image.loadFromData(data)
         item = BeePixmapItem(image, state.get('filename'))
+        if data:
+            item.original_bytes = data
     elif itype == BeeVideoItem.TYPE:
         size = state.get('size')
+        asset = state.get('asset') or {}
+        cached = find_cached_asset(asset.get('sha'))
+        if cached is None:
+            data = _state_media_bytes(state, 'video')
+            if data:
+                cached = store_asset(asset.get('sha'),
+                                     data, state.get('filename'))
+        video_path = cached or state.get('video_path')
         item = BeeVideoItem(
-            video_path=state.get('video_path'),
+            video_path=video_path,
             filename=state.get('filename'),
             size=tuple(size) if size else None,
             duration=state.get('duration', -1))
@@ -297,8 +446,22 @@ def create_item_from_state(state):
             logger.info(f'Cannot create item of unknown type {itype}')
             return None
         item = cls.create_from_data(data=state)
+    item._collab_state = dict(state)
+    _apply_media_flags(item, state)
     _apply_geometry(item, state)
     return item
+
+
+def _apply_media_flags(item, state):
+    """Applies crop/grayscale (shared as flags, not baked into pixels)."""
+
+    if item.TYPE != BeePixmapItem.TYPE:
+        return
+    crop = state.get('crop')
+    if crop and len(crop) == 4:
+        item.crop = QtCore.QRectF(*crop)
+    if 'grayscale' in state:
+        item.grayscale = bool(state['grayscale'])
 
 
 def update_item_from_state(item, state):
@@ -323,10 +486,52 @@ def update_item_from_state(item, state):
             if data.get('stroke_width'):
                 item.set_stroke_width(data['stroke_width'])
             item._rebuild_path()
+    elif item.TYPE == BeePixmapItem.TYPE:
+        item._collab_state = dict(state)
+        _apply_media_flags(item, state)
+        size = state.get('size')
+        if size and len(size) == 2:
+            current = item.pixmap().size()
+            if [current.width(), current.height()] != list(size):
+                data = _state_media_bytes(state, 'image')
+                if data:
+                    apply_asset_to_item(item, data)
     elif item.TYPE == BeeVideoItem.TYPE:
         position = state.get('position')
         if position is not None and int(position) != item._current_position:
             item.set_position(int(position))
+
+
+def apply_asset_to_item(item, data, path=None):
+    """Installs received media into an item (original bytes)."""
+
+    if not data:
+        return False
+    if item.TYPE == BeePixmapItem.TYPE:
+        item.pixmap_from_bytes(data)
+        item.original_bytes = data
+        state = getattr(item, '_collab_state', None)
+        if state:
+            _apply_media_flags(item, state)
+        item.update()
+        return True
+    if item.TYPE == BeeVideoItem.TYPE:
+        if path is None:
+            path = os.path.join(asset_cache_dir(), _sha256(data))
+        if not os.path.isfile(path):
+            try:
+                with open(path, 'wb') as f:
+                    f.write(data)
+            except OSError as e:
+                logger.info(f'Could not cache shared video: {e}')
+                return False
+        item.video_path = path
+        item.video_bytes = None
+        item.release_player()
+        item._load_preview()
+        item.update()
+        return True
+    return False
 
 
 def _diff_state(state):
@@ -348,6 +553,8 @@ class CollabSession(QtCore.QObject):
     status_changed = QtCore.pyqtSignal(str)
     peers_changed = QtCore.pyqtSignal(int)
     board_replaced = QtCore.pyqtSignal()
+    #: Emitted when this peer took over sharing after the host went away
+    became_host = QtCore.pyqtSignal()
 
     def __init__(self, scene, name='BeeRef user', parent=None):
         super().__init__(parent)
@@ -378,6 +585,17 @@ class CollabSession(QtCore.QObject):
         self._links = set()
         self._got_snapshot = False
         self._failed = {}
+        # Media transfer (original bytes)
+        self._asset_buffers = {}
+        self._asset_meta = {}
+        self._pending_assets = {}
+        # Host migration
+        self._handover_order = []
+        self._session_ended = False
+        self._recover_timer = None
+        self._recover_rank = 0
+        self._recover_attempts = 0
+        self._sent_assets = set()
         self._discovery_timer = None
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(SYNC_INTERVAL_MS)
@@ -452,8 +670,8 @@ class CollabSession(QtCore.QObject):
                 QtNetwork.QHostAddress(
                     QtNetwork.QHostAddress.SpecialAddress.AnyIPv4), port)
         if not listening:
-            self.last_error = (
-                f'Could not start sharing: {server.errorString()}')
+            self.last_error = tr('Could not start sharing: {error}',
+                                 error=server.errorString())
             self._set_status(self.last_error)
             server.deleteLater()
             self._keys = None
@@ -472,11 +690,22 @@ class CollabSession(QtCore.QObject):
         self._set_status(self._host_status())
         return self.session_code
 
+    def _announce_handover(self):
+        """Tells every peer who takes over if the host disappears."""
+
+        if not self.is_host:
+            return
+        order = [info.get('id') for info in self.peers.values()
+                 if info.get('id')]
+        self._broadcast({'type': 'handover', 'order': order})
+
     def _host_status(self):
         peers = self.peer_count()
         if not peers:
-            return f'Sharing · code {self.session_code} · waiting for peers'
-        return f'Sharing · code {self.session_code} · {peers} peer(s)'
+            return tr('Sharing · code {code} · waiting for peers',
+                      code=self.session_code)
+        return tr('Sharing · code {code} · {count} peer(s)',
+                  code=self.session_code, count=peers)
 
     def _start_discovery(self):
         """Listens for discovery requests from joiners (UDP)."""
@@ -539,6 +768,145 @@ class CollabSession(QtCore.QObject):
         sock.errorOccurred.connect(
             lambda err, s=sock: self._on_socket_error(s, err))
 
+    # -- Media transfer ----------------------------------------------------
+
+    def _send_asset_to(self, sock, data, name, kind):
+        """Sends a media file in chunks (original bytes)."""
+
+        if not data or len(data) > MAX_ASSET_SIZE:
+            return False
+        sha = _sha256(data)
+        meta = _asset_meta(data, name, kind)
+        self._send(sock, {'type': 'asset_begin', **meta})
+        seq = 0
+        for offset in range(0, len(data), ASSET_CHUNK_SIZE):
+            chunk = data[offset:offset + ASSET_CHUNK_SIZE]
+            self._send(sock, {
+                'type': 'asset_chunk',
+                'sha': sha,
+                'seq': seq,
+                'data': base64.b64encode(chunk).decode('ascii'),
+            })
+            seq += 1
+        self._send(sock, {'type': 'asset_end', 'sha': sha})
+        logger.debug(f'Collaboration: sent asset {sha[:12]} '
+                     f'({len(data)} bytes, {seq} chunks)')
+        return True
+
+    def _broadcast_asset(self, data, name, kind, exclude=None):
+        if not data or len(data) <= ASSET_INLINE_LIMIT:
+            return
+        if self.is_host:
+            for sock in list(self.peers):
+                if sock is not exclude and self._keys_for(sock) is not None:
+                    self._send_asset_to(sock, data, name, kind)
+        elif self.socket is not None:
+            self._send_asset_to(self.socket, data, name, kind)
+
+    def _send_item_assets(self, items, sock=None):
+        """Sends media that was too large to travel inline.
+
+        Every machine ends up with the same original bytes; an asset is
+        only transferred once per session, however often it is used.
+        """
+
+        for item in items:
+            data = item_asset_bytes(item)
+            if not data or len(data) <= ASSET_INLINE_LIMIT:
+                continue
+            sha = _sha256(data)
+            kind = 'video' if item.TYPE == BeeVideoItem.TYPE else 'image'
+            if sock is not None:
+                self._send_asset_to(sock, data, item.filename, kind)
+                continue
+            if sha in self._sent_assets:
+                continue
+            self._sent_assets.add(sha)
+            self._broadcast_asset(data, item.filename, kind)
+
+    def _request_asset(self, sha):
+        if sha and self.socket is not None:
+            self._send(self.socket, {'type': 'asset_request', 'sha': sha})
+
+    # -- Receiving media ---------------------------------------------------
+
+    def _store_asset(self, sha, data, name):
+        return store_asset(sha, data, name)
+
+    def _apply_asset(self, sha, data, path):
+        items = self._pending_assets.pop(sha, [])
+        for item in items:
+            try:
+                if item.scene() is self.scene:
+                    apply_asset_to_item(item, data, path)
+            except RuntimeError:  # item already deleted
+                continue
+        if items:
+            logger.info(f'Collaboration: media applied to {len(items)} item(s)')
+
+    def _handle_asset(self, sock, payload):
+        mtype = payload.get('type')
+        sha = payload.get('sha')
+        if not sha:
+            return
+        if mtype == 'asset_begin':
+            try:
+                size = int(payload.get('size') or 0)
+            except (TypeError, ValueError):
+                size = 0
+            if size > MAX_ASSET_SIZE:
+                logger.info('Collaboration: refusing an oversized asset')
+                return
+            self._asset_buffers[sha] = bytearray()
+            self._asset_meta[sha] = payload
+            return
+        if mtype == 'asset_chunk':
+            buffer = self._asset_buffers.get(sha)
+            if buffer is None:
+                return
+            try:
+                buffer.extend(base64.b64decode(payload.get('data') or ''))
+            except (ValueError, TypeError):
+                self._asset_buffers.pop(sha, None)
+            return
+        if mtype == 'asset_end':
+            buffer = self._asset_buffers.pop(sha, None)
+            meta = self._asset_meta.pop(sha, {})
+            if buffer is None:
+                return
+            data = bytes(buffer)
+            if _sha256(data) != sha:
+                logger.info('Collaboration: checksum mismatch, media dropped')
+                return
+            path = self._store_asset(sha, data, meta.get('name'))
+            self._apply_asset(sha, data, path)
+            return
+        if mtype == 'asset_request':
+            path = find_cached_asset(sha)
+            if not path:
+                return
+            try:
+                with open(path, 'rb') as f:
+                    data = f.read()
+            except OSError:
+                return
+            self._send_asset_to(sock, data, os.path.basename(path),
+                                'video' if path.lower().endswith(
+                                    ('.mp4', '.mov', '.webm', '.mkv', '.avi')
+                                ) else 'image')
+
+    def _register_pending_asset(self, item, state):
+        """Remembers items whose media still has to arrive."""
+
+        asset = state.get('asset') or {}
+        sha = asset.get('sha')
+        if not sha or asset.get('inline'):
+            return
+        if find_cached_asset(sha):
+            return
+        self._pending_assets.setdefault(sha, []).append(item)
+        self._request_asset(sha)
+
     def _send_snapshot(self, sock):
         items, links = self._collect_state(include_image=True)
         self._send(sock, {
@@ -547,6 +915,8 @@ class CollabSession(QtCore.QObject):
                       for cid, state in items.items()],
             'links': [list(link) for link in links],
         })
+        # Media that is too large for the inline limit follows in chunks
+        self._send_item_assets(self.scene.items_for_save(), sock=sock)
 
     def _on_disconnected(self, sock):
         info = self.peers.pop(sock, None)
@@ -577,17 +947,17 @@ class CollabSession(QtCore.QObject):
         self._handshake_error = ''
         keys = derive_keys(code)
         if keys is None:
-            self.last_error = 'Please enter the session code.'
+            self.last_error = tr('Please enter the session code.')
             self._set_status(self.last_error)
             return False
         self.code = normalize_code(code)
         self.session_code = format_code(self.code)
         self._keys = keys
-        self._set_status('Looking for the shared board...')
+        self._set_status(tr('Looking for the shared board...'))
 
         offer = self._discover_host(keys, timeout_ms)
         if offer is None:
-            self.last_error = (
+            self.last_error = tr(
                 'No board found with this code. Check the code and that '
                 'both devices are on the same network.')
             self._set_status(self.last_error)
@@ -647,8 +1017,8 @@ class CollabSession(QtCore.QObject):
         sock.errorOccurred.connect(self._on_client_error)
         sock.connectToHost(host, int(port))
         if not sock.waitForConnected(timeout_ms):
-            self.last_error = f'Could not connect to the board: ' \
-                              f'{sock.errorString()}'
+            self.last_error = tr('Could not connect to the board: {error}',
+                                 error=sock.errorString())
             self._set_status(self.last_error)
             self.socket = None
             sock.deleteLater()
@@ -675,8 +1045,9 @@ class CollabSession(QtCore.QObject):
             self._drain(sock)
 
         if not self._handshake_done:
-            reason = self._handshake_error or 'no answer from the host'
-            self.last_error = f'Could not join the board: {reason}'
+            reason = self._handshake_error or tr('no answer from the host')
+            self.last_error = tr('Could not join the board: {reason}',
+                                 reason=tr(reason))
             self._set_status(self.last_error)
             if self.socket is not None:
                 self.socket.deleteLater()
@@ -693,7 +1064,7 @@ class CollabSession(QtCore.QObject):
             sock.waitForReadyRead(60)
             self._drain(sock)
         if not self._got_snapshot:
-            self.last_error = 'Could not join the board: no board data'
+            self.last_error = tr('Could not join the board: no board data')
             self._set_status(self.last_error)
             if self.socket is not None:
                 self.socket.deleteLater()
@@ -706,6 +1077,8 @@ class CollabSession(QtCore.QObject):
 
     def _on_client_disconnected(self):
         self._handshake_done = False
+        lost_host = (not self.is_host and self.socket is not None
+                     and not self._session_ended)
         if self.socket is not None:
             self.socket.deleteLater()
             self.socket = None
@@ -713,9 +1086,69 @@ class CollabSession(QtCore.QObject):
         self._session_keys = None
         if self.is_host:
             self._set_status(self._host_status())
+            return
+        self.peers_changed.emit(0)
+        if lost_host:
+            self._on_host_lost()
         else:
-            self._set_status('Disconnected')
-            self.peers_changed.emit(0)
+            self._set_status(tr('Disconnected'))
+
+    def _on_host_lost(self):
+        """The host went away without ending the session: recover."""
+
+        rank = 0
+        if self.peer_id in self._handover_order:
+            rank = self._handover_order.index(self.peer_id)
+        self._recover_rank = rank
+        self._recover_attempts = 0
+        self._set_status(tr('Host connection lost, recovering...'))
+        if self._recover_timer is not None:
+            self._recover_timer.stop()
+            self._recover_timer.deleteLater()
+        self._recover_timer = QtCore.QTimer(self)
+        self._recover_timer.setSingleShot(True)
+        # Rank 0 tries first; the others wait in case it is gone as well
+        self._recover_timer.timeout.connect(self._try_recover)
+        self._recover_timer.start(RECOVER_DELAY_MS + rank * 1200)
+
+    def _try_recover(self):
+        self._recover_timer = None
+        if self.is_active() or self._session_ended or not self.code:
+            return
+
+        if self._recover_rank == 0:
+            # The host designated us as its successor: take over right
+            # away, so the other peers have something to reconnect to
+            if self._become_host():
+                return
+        elif self.join(self.code, timeout_ms=1500):
+            self._recover_attempts = 0
+            self._set_status(tr('Reconnected to the shared board'))
+            return
+
+        self._recover_attempts += 1
+        if self._recover_attempts < RECOVER_ATTEMPTS:
+            self._recover_timer = QtCore.QTimer(self)
+            self._recover_timer.setSingleShot(True)
+            self._recover_timer.timeout.connect(self._try_recover)
+            self._recover_timer.start(RECOVER_RETRY_MS)
+            return
+
+        if self._recover_rank <= 2 and self._become_host():
+            return
+        self._recover_attempts = 0
+        self._set_status(tr('Shared board connection lost'))
+
+    def _become_host(self):
+        """Continues the session as the new host (board is up to date)."""
+
+        if self.host(port=0, code=self.code):
+            self._recover_attempts = 0
+            self._set_status(tr('Taking over sharing '
+                                '(you are the new host)'))
+            self.became_host.emit()
+            return True
+        return False
 
     def _on_client_error(self, error):
         SocketError = QtNetwork.QAbstractSocket.SocketError
@@ -728,13 +1161,24 @@ class CollabSession(QtCore.QObject):
         logger.info(f'Collaboration connection error: {error}')
         if (self.socket is not None and not self.is_host
                 and not self._handshake_done):
-            self.last_error = f'Connection error: ' \
-                              f'{self.socket.errorString()}'
+            self.last_error = tr('Connection error: {error}',
+                                 error=self.socket.errorString())
 
     # -- Leaving -----------------------------------------------------------
 
-    def leave(self):
+    def leave(self, announce=True):
+        """Stops sharing/leaves. A host announces it, so peers don't
+        take over a session that was ended on purpose."""
+
         self._timer.stop()
+        if self._recover_timer is not None:
+            self._recover_timer.stop()
+            self._recover_timer = None
+        if self.is_host and announce:
+            for peer in list(self.peers):
+                if self.peers.get(peer, {}).get('keys'):
+                    self._send(peer, {'type': 'end',
+                                      'peer_id': self.peer_id})
         sock = self.socket
         if sock is not None:
             self.socket = None
@@ -780,7 +1224,13 @@ class CollabSession(QtCore.QObject):
         self._handshake_done = False
         self.code = None
         self.session_code = None
-        self._set_status('Not sharing')
+        self._handover_order = []
+        self._session_ended = False
+        self._asset_buffers = {}
+        self._asset_meta = {}
+        self._pending_assets = {}
+        self._sent_assets = set()
+        self._set_status(tr('Not sharing'))
         self.peers_changed.emit(0)
 
     # -- Transport ---------------------------------------------------------
@@ -960,6 +1410,7 @@ class CollabSession(QtCore.QObject):
         self._send_snapshot(sock)
         self.peers_changed.emit(self.peer_count())
         self._set_status(self._host_status())
+        self._announce_handover()
 
     def _accept_welcome(self, message):
         keys = self._keys
@@ -978,8 +1429,9 @@ class CollabSession(QtCore.QObject):
             keys, self._client_nonce, server_nonce)
         self._handshake_done = True
         self._set_status(
-            f'Connected to {message.get("name", "host")} · '
-            f'code {self.session_code}')
+            tr('Connected to {name} · code {code}',
+               name=message.get('name', 'host'),
+               code=self.session_code))
         self.peers_changed.emit(1)
 
     def _is_locked_out(self, address):
@@ -1006,6 +1458,20 @@ class CollabSession(QtCore.QObject):
                 # Relay to the other peers (sealed per peer)
                 self._broadcast(payload, exclude=sock)
             self._apply_ops(payload.get('ops', []))
+        elif mtype in ('asset_begin', 'asset_chunk', 'asset_end',
+                       'asset_request'):
+            if self.is_host and mtype != 'asset_request':
+                # The host is the hub: pass media on to the other peers
+                self._broadcast(payload, exclude=sock)
+            self._handle_asset(sock, payload)
+        elif mtype == 'handover':
+            self._handover_order = list(payload.get('order') or [])
+            logger.debug(f'Collaboration: handover order '
+                         f'{self._handover_order}')
+        elif mtype == 'end':
+            # The host stopped sharing on purpose: no takeover
+            self._session_ended = True
+            self._set_status(tr('The host ended the shared session'))
         elif mtype == 'bye':
             logger.info('Collaboration: peer said goodbye')
             self._drop_socket(sock)
@@ -1023,6 +1489,7 @@ class CollabSession(QtCore.QObject):
                 item.collab_id = entry['id']
                 self.scene.addItem(item)
                 by_id[entry['id']] = item
+                self._register_pending_asset(item, entry.get('item', {}))
             self._known = {}
             self._links = set()
             for entry in message.get('items', []):
@@ -1060,6 +1527,7 @@ class CollabSession(QtCore.QObject):
                         item.collab_id = cid
                         self.scene.addItem(item)
                         by_id[cid] = item
+                        self._register_pending_asset(item, state)
                     self._known[cid] = _diff_state(state)
                 elif kind == 'update':
                     item = by_id.get(cid)
@@ -1098,10 +1566,12 @@ class CollabSession(QtCore.QObject):
         items, links = self._collect_state(include_image=False)
         by_id = self._items_by_id()
         ops = []
+        new_items = []
         for cid, state in items.items():
             if cid not in self._known:
                 full = item_state(by_id[cid], include_image=True)
                 ops.append({'op': 'add', 'id': cid, 'item': full})
+                new_items.append(by_id[cid])
             elif self._known[cid] != state:
                 ops.append({'op': 'update', 'id': cid,
                             'item': _diff_state(state)})
@@ -1120,6 +1590,8 @@ class CollabSession(QtCore.QObject):
         if ops:
             self._broadcast({'type': 'ops', 'origin': self.peer_id,
                              'ops': ops})
+            if new_items:
+                self._send_item_assets(new_items)
 
 
 def _broadcast_addresses():

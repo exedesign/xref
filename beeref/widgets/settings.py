@@ -189,6 +189,22 @@ class ConfirmCloseUnsavedWidget(SingleCheckboxGroup):
     KEY = 'Save/confirm_close_unsaved'
 
 
+class AutosaveWidget(SingleCheckboxGroup):
+    TITLE = 'Autosave:'
+    HELPTEXT = ('Automatically save the board while you work. Only boards '
+                'that already have a file are saved.')
+    LABEL = 'Save automatically'
+    KEY = 'Save/autosave'
+
+
+class AutosaveIntervalWidget(IntegerGroup):
+    TITLE = 'Autosave Interval:'
+    HELPTEXT = 'How often the board is saved automatically (in minutes).'
+    KEY = 'Save/autosave_interval'
+    MIN = 1
+    MAX = 120
+
+
 class LanguageWidget(RadioGroup):
     TITLE = 'Language:'
     HELPTEXT = 'The language of the user interface.'
@@ -225,6 +241,8 @@ class SettingsDialog(QtWidgets.QDialog):
         misc.setLayout(misc_layout)
         misc_layout.addWidget(LanguageWidget(), 0, 0)
         misc_layout.addWidget(ConfirmCloseUnsavedWidget(), 1, 0)
+        misc_layout.addWidget(AutosaveWidget(), 2, 0)
+        misc_layout.addWidget(AutosaveIntervalWidget(), 2, 1)
         tabs.addTab(misc, tr('&Miscellaneous'))
 
         # Images & Items

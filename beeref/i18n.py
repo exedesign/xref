@@ -257,6 +257,18 @@ TRANSLATIONS = {
         'too many attempts': 'çok fazla deneme',
         'version mismatch': 'sürüm uyumsuz',
         'declined by the host': 'sunucu reddetti',
+        'You are now hosting the shared board':
+            'Paylaşılan panoyu artık siz yönetiyorsunuz',
+        'Host connection lost, recovering...':
+            'Host bağlantısı koptu, kurtarılıyor...',
+        'Reconnected to the shared board':
+            'Paylaşılan panoya yeniden bağlandınız',
+        'Shared board connection lost':
+            'Paylaşılan pano bağlantısı koptu',
+        'Taking over sharing (you are the new host)':
+            'Paylaşımı devraldınız (yeni host sizsiniz)',
+        'The host ended the shared session':
+            'Host paylaşılan oturumu sonlandırdı',
         'Shared board: {count} peer(s) connected':
             'Paylaşılan pano: {count} eş bağlı',
         'A session is already running; stop it first':
@@ -328,6 +340,16 @@ TRANSLATIONS = {
         'confirmation?':
             'Kaydedilmemiş bir dosya kapatılırken BeeRef onay istemeli mi?',
         'Confirm when closing': 'Kapatırken onayla',
+        'Autosave:': 'Otomatik Kayıt:',
+        'Automatically save the board while you work. Only boards '
+        'that already have a file are saved.':
+            'Çalışırken panoyu otomatik kaydeder. Yalnızca dosyası olan '
+            'panolar kaydedilir.',
+        'Save automatically': 'Otomatik kaydet',
+        'Autosave Interval:': 'Otomatik Kayıt Aralığı:',
+        'How often the board is saved automatically (in minutes).':
+            'Panonun kaç dakikada bir otomatik kaydedileceği.',
+        'Saving {filename}': 'Kaydediliyor: {filename}',
         'Image Storage Format:': 'Görsel Saklama Biçimi:',
         'How images are stored inside bee files.'
         ' Changes will only take effect on newly saved images.':

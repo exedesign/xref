@@ -143,6 +143,7 @@ class BeeGraphicsView(MainControlsMixin,
         self.setScene(self.scene)
 
         i18n.language_events.changed.connect(self.on_language_changed)
+        self.init_autosave()
 
         # Shared board session (see Collaborate menu)
         self.collab = collab.CollabSession(
@@ -150,6 +151,7 @@ class BeeGraphicsView(MainControlsMixin,
         self.collab.status_changed.connect(self.on_collab_status)
         self.collab.peers_changed.connect(self.on_collab_peers_changed)
         self.collab.board_replaced.connect(self.on_collab_board_replaced)
+        self.collab.became_host.connect(self.on_collab_became_host)
 
         # Context menu and actions
         self.build_menu_and_actions()
@@ -546,27 +548,73 @@ class BeeGraphicsView(MainControlsMixin,
 
     def on_saving_finished(self, filename, errors):
         if errors:
-            QtWidgets.QMessageBox.warning(
-                self,
-                tr('Problem saving file'),
-                tr('<p>Problem saving file {filename}</p>'
-                   '<p>File/directory not accessible</p>',
-                   filename=filename))
+            if getattr(self, '_saving_quietly', False):
+                # Autosave must not interrupt the user with dialogs
+                logger.warning(f'Autosave failed for {filename}')
+            else:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    tr('Problem saving file'),
+                    tr('<p>Problem saving file {filename}</p>'
+                       '<p>File/directory not accessible</p>',
+                       filename=filename))
         else:
             self.filename = filename
             self.undo_stack.setClean()
+            self.update_window_title()
+        self._saving_quietly = False
 
-    def do_save(self, filename, create_new):
+    def do_save(self, filename, create_new, quiet=False):
         if not fileio.is_bee_file(filename):
             filename = f'{filename}.bee'
         self.worker = fileio.ThreadedIO(
             fileio.save_bee, filename, self.scene, create_new=create_new)
         self.worker.finished.connect(self.on_saving_finished)
+        self._saving_quietly = quiet
+        if quiet:
+            self.worker.start()
+            return
         self.progress = widgets.BeeProgressDialog(
-            f'Saving {filename}',
+            tr('Saving {filename}', filename=filename),
             worker=self.worker,
             parent=self)
         self.worker.start()
+
+    # -- Autosave ----------------------------------------------------------
+
+    def init_autosave(self):
+        self._saving_quietly = False
+        self._last_autosave = QtCore.QElapsedTimer()
+        self._last_autosave.start()
+        self.autosave_timer = QtCore.QTimer(self)
+        self.autosave_timer.setInterval(15 * 1000)
+        self.autosave_timer.timeout.connect(self.on_autosave_tick)
+        self.autosave_timer.start()
+
+    def autosave_enabled(self):
+        return self.settings.valueOrDefault('Save/autosave')
+
+    def on_autosave_tick(self, force=False):
+        """Saves the board periodically if autosave is enabled."""
+
+        if not self.autosave_enabled():
+            return False
+        worker = getattr(self, 'worker', None)
+        if worker is not None and worker.isRunning():
+            # A save is already in progress
+            return False
+        if not self.filename or self.undo_stack.isClean():
+            return False
+        interval = (self.settings.valueOrDefault('Save/autosave_interval')
+                    * 60 * 1000)
+        if not force and self._last_autosave.elapsed() < interval:
+            return False
+        if QtWidgets.QApplication.activeModalWidget() is not None:
+            return False
+        self._last_autosave.restart()
+        logger.info('Autosaving...')
+        self.do_save(self.filename, create_new=False, quiet=True)
+        return True
 
     def on_action_save_as(self):
         self.cancel_active_modes()
@@ -1126,11 +1174,16 @@ class BeeGraphicsView(MainControlsMixin,
 
     def on_collab_peers_changed(self, count):
         self.update_window_title()
-        self.actiongroup_set_enabled('active_when_can_undo', True)
         if count:
             widgets.BeeNotification(
                 self, tr('Shared board: {count} peer(s) connected',
                         count=count))
+
+    def on_collab_became_host(self):
+        """This peer continues the session after the host went away."""
+        self.update_window_title()
+        widgets.BeeNotification(
+            self, tr('You are now hosting the shared board'))
 
     def on_collab_board_replaced(self):
         # The board was replaced by the host's snapshot
