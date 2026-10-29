@@ -6,9 +6,9 @@
 XRef — A Reference Board for Images, Videos and Ideas
 ======================================================
 
-XRef lets you quickly arrange your reference images, videos and PDFs and view
-them while you create. Its minimal interface is designed not to get in the
-way of your creative process.
+XRef lets you quickly arrange your reference images, videos, PDFs and 3D
+models and view them while you create. Its minimal interface is designed
+not to get in the way of your creative process.
 
 XRef is a fork of `BeeRef <https://github.com/rbreu/beeref>`_ by Rebecca Breu,
 extended with video playback, multi-page PDFs, node-style links between
@@ -18,8 +18,8 @@ interface.
 Features
 --------
 
-* Reference images (PNG, JPG, WebP, GIF, ...), videos (MP4, MOV, WebM, ...) and
-  multi-page PDFs
+* Reference images (PNG, JPG, WebP, GIF, ...), videos (MP4, MOV, WebM, ...),
+  multi-page PDFs and 3D models (OBJ, STL, PLY)
 * Frameless, PureRef-like window: double click the empty canvas for full
   screen, an always-on-top mode and resizable edges
 * Infinite canvas with pan, zoom, rotate, flip, crop, arrange and normalize
