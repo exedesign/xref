@@ -234,6 +234,40 @@ class XRefItemMixin(SelectableMixin):
                 and self.pos() == item_pos
                 and (event.pos() - pos).manhattanLength() <= 4)
 
+    def paint_media_title(self, painter, rect, text):
+        """Draws the media's file name below/over the item.
+
+        Only shown when the user turned media titles on; the label keeps a
+        readable size on screen regardless of the zoom level.
+        """
+
+        if not text:
+            return
+        settings = getattr(self, 'settings', None)
+        if settings is None:
+            return
+        try:
+            show = settings.valueOrDefault('Items/show_media_titles')
+        except Exception:  # noqa: BLE001 - settings not ready
+            return
+        if not show:
+            return
+        height = self.fixed_length_for_viewport(18)
+        font = painter.font()
+        font.setPointSizeF(max(1.0, self.fixed_length_for_viewport(9)))
+        painter.setFont(font)
+        band = QtCore.QRectF(rect.left(), rect.bottom(),
+                             rect.width(), height)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(0, 0, 0, 140))
+        painter.drawRect(band)
+        painter.setPen(QtGui.QColor(235, 235, 235))
+        margin = self.fixed_length_for_viewport(4)
+        painter.drawText(band.adjusted(margin, 0, -margin, 0),
+                         Qt.AlignmentFlag.AlignVCenter
+                         | Qt.AlignmentFlag.AlignLeft,
+                         text)
+
     def update_from_data(self, **kwargs):
         self.save_id = kwargs.get('save_id', self.save_id)
         self.setPos(kwargs.get('x', self.pos().x()),
@@ -607,6 +641,8 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
         painter.drawRect(rect)
 
     def paint(self, painter, option, widget):
+        self.paint_media_title(
+            painter, self.bounding_rect_unselected(), self.filename)
         if abs(painter.combinedTransform().m11()) < 2:
             # We want image smoothing, but only for images where we
             # are not zoomed in a lot. This is to ensure that for
@@ -1514,6 +1550,7 @@ class XRefPdfItem(XRefItemMixin, QtWidgets.QGraphicsItem):
     def paint(self, painter, option, widget):
         rect = self.bounding_rect_unselected()
         painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform)
+        self.paint_media_title(painter, rect, self.filename)
         if self._frame is not None and not self._frame.isNull():
             painter.drawImage(rect, self._frame)
         else:
@@ -2650,6 +2687,7 @@ class XRefVideoItem(XRefItemMixin, QtWidgets.QGraphicsItem):
 
     def paint(self, painter, option, widget):
         rect = self.bounding_rect_unselected()
+        self.paint_media_title(painter, rect, self.filename)
         if self._frame is not None and not self._frame.isNull():
             painter.drawImage(rect, self._frame)
         else:

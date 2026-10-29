@@ -242,6 +242,14 @@ class LanguageWidget(RadioGroup):
         (code, name, name) for code, name in i18n.LANGUAGES.items())
 
 
+class ShowMediaTitlesWidget(SingleCheckboxGroup):
+    TITLE = 'Show Media Titles:'
+    HELPTEXT = ('Show the file name of each image, video and PDF on the '
+                'canvas, so references are easier to identify.')
+    LABEL = 'Show media titles'
+    KEY = 'Items/show_media_titles'
+
+
 class CanvasColorWidget(ColorGroup):
     TITLE = 'Canvas Background Color:'
     HELPTEXT = ('The background colour of the working area. Black is a good '
@@ -302,6 +310,7 @@ class SettingsDialog(QtWidgets.QDialog):
         misc_layout.addWidget(WindowMoveMarginWidget(), 3, 0)
         misc_layout.addWidget(WindowButtonsDelayWidget(), 3, 1)
         misc_layout.addWidget(CanvasColorWidget(), 4, 0)
+        misc_layout.addWidget(ShowMediaTitlesWidget(), 4, 1)
         tabs.addTab(misc, tr('&Miscellaneous'))
 
         # Images & Items

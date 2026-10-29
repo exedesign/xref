@@ -27,6 +27,18 @@ from xref import i18n
 logger = logging.getLogger(__name__)
 
 
+def _repaint_all_views(value):
+    """Makes all open views repaint (e.g. after a display setting)."""
+
+    from xref.view import XRefGraphicsView
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        for view in widget.findChildren(XRefGraphicsView):
+            view.viewport().update()
+
+
 def apply_canvas_color_setting(value):
     """Applies the canvas colour setting to all open views."""
 
@@ -160,6 +172,11 @@ class XRefSettings(QtCore.QSettings):
             'default': 'optimal',
             'validate': lambda x: x in (
                 'optimal', 'horizontal', 'vertical', 'square'),
+        },
+        'Items/show_media_titles': {
+            'default': False,
+            'cast': bool,
+            'post_save_callback': _repaint_all_views,
         },
         'Items/image_allocation_limit': {
             'default': 256,

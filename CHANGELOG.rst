@@ -51,6 +51,10 @@ Added
   in Settings -> Miscellaneous -> Window Edge Move Area). Ctrl+Alt+drag and
   Ctrl+M still move the window. The title bar and the always-on-top state
   are remembered between sessions.
+* Media titles: images, videos and PDFs can show their file name on
+  the canvas (Settings -> Miscellaneous -> Show Media Titles), so
+  references are easier to identify. The titles keep a readable size
+  on screen at any zoom level and are applied instantly.
 * Pen mode gained shape tools: rectangles and ellipses (hold Shift to
   get a perfect square or circle) and straight lines, with the same
   colour, width and style as freehand drawing (Tools menu).

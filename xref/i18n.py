@@ -400,6 +400,12 @@ TRANSLATIONS = {
         'Minimize': 'Küçült',
         'Full screen': 'Tam ekran',
         'Close window': 'Pencereyi kapat',
+        'Show Media Titles:': 'Medya Başlıklarını Göster:',
+        'Show the file name of each image, video and PDF on the '
+        'canvas, so references are easier to identify.':
+            "Tuvaldeki her görselin, videonun ve PDF'in dosya adını "
+            'gösterir; referansları tanımlamayı kolaylaştırır.',
+        'Show media titles': 'Medya başlıklarını göster',
         'Canvas Background Color:': 'Çalışma Alanı Arka Plan Rengi:',
         'The background colour of the working area. Black is a good '
         'default for looking at reference images.':
