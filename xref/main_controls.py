@@ -203,7 +203,7 @@ class MainControlsMixin:
                      if self.is_text_file(u.toLocalFile())]
         media_urls = [u for u in local_urls if u not in text_urls]
         media_urls += [u for u in remote_urls
-                       if media_type(u) in ('image', 'video')]
+                       if media_type(u) in ('image', 'video', 'pdf')]
 
         handled = False
         if media_urls:

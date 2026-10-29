@@ -35,11 +35,19 @@ Added
 * Added support for adding videos to a scene (Insert -> Video, or by
   dragging & dropping video files). Videos are stored in bee files
   as their original file and can be played back directly in the scene.
+* Added support for multi-page PDFs (Insert -> Images / PDFs, or by
+  dragging & dropping PDF files). PDFs work like videos: hovering over a page flips
+  through the pages (the red vertical playhead on the progress bar shows
+  and sets the page), the arrows and mouse wheel change the page, and the
+  page you stopped on is the one shown later, also after saving and
+  reloading the scene. The original PDF is stored in the scene (and sent
+  to the other machines in a collaboration session), so every page is
+  rendered at full quality.
 * Dragging selected media out of the window now starts a normal OS
   drag & drop, so media can be copied into other applications or
-  folders (images as files or image data, videos as files, text as
-  text). The originals stay in place, so dragging out copies instead of
-  moving.
+  folders (images as files or image data, videos as files, PDFs as
+  files, text as text). The originals stay in place, so dragging out
+  copies instead of moving.
 * Fixed repaint trails: while items were dragged, old link curves and
   selection outlines were left behind on the canvas. The view now
   repaints the affected region (and the whole viewport while links are

@@ -34,7 +34,8 @@ import tempfile
 from PyQt6 import QtGui
 
 from xref import constants
-from xref.items import XRefPixmapItem, XRefErrorItem, XRefVideoItem, \
+from xref.items import XRefPixmapItem, XRefErrorItem, XRefPdfItem, \
+    XRefVideoItem, \
     XRefDrawItem
 from .errors import XRefFileIOError, IMG_LOADING_ERROR_MSG
 from .schema import SCHEMA, USER_VERSION, MIGRATIONS, APPLICATION_ID
@@ -207,7 +208,7 @@ class SQLiteIO:
             ' items.data, null as data '
             'FROM items '
             'WHERE items.type IN ("text", "draw") '
-            'OR (items.type = "video" AND items.id NOT IN '
+            'OR (items.type IN ("video", "pdf") AND items.id NOT IN '
             '(SELECT item_id FROM sqlar))'))
         if self.worker:
             self.worker.begin_processing.emit(len(rows))
@@ -239,6 +240,12 @@ class SQLiteIO:
                 item = XRefVideoItem()
                 if row[9] is not None:
                     item.video_from_bytes(row[9])
+                data['item'] = item
+
+            if data['type'] == 'pdf':
+                item = XRefPdfItem()
+                if row[9] is not None:
+                    item.pdf_from_bytes(row[9])
                 data['item'] = item
 
             if data['type'] == 'draw':
@@ -384,6 +391,16 @@ class SQLiteIO:
                 'INSERT INTO sqlar (item_id, name, mode, sz, data) '
                 'VALUES (?, ?, ?, ?, ?)',
                 (item.save_id, name, 0o644, len(pixmap), pixmap))
+
+        if item.TYPE == 'pdf':
+            # PDFs are embedded, so boards stay self-contained
+            data = item.pdf_to_bytes()
+            if data is not None:
+                name = item.get_filename_for_export('pdf')
+                self.ex(
+                    'INSERT INTO sqlar (item_id, name, mode, sz, data) '
+                    'VALUES (?, ?, ?, ?, ?)',
+                    (item.save_id, name, 0o644, len(data), data))
 
         if item.TYPE == 'video':
             # Videos are played from their source location; only data

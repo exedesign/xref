@@ -1,28 +1,32 @@
 XRef — A Reference Board for Images, Videos and Ideas
 ======================================================
 
-XRef lets you quickly arrange your reference images and videos and view them
-while you create. Its minimal interface is designed not to get in the way of
-your creative process.
+XRef lets you quickly arrange your reference images, videos and PDFs and view
+them while you create. Its minimal interface is designed not to get in the
+way of your creative process.
 
 XRef is a fork of `BeeRef <https://github.com/rbreu/beeref>`_ by Rebecca Breu,
-extended with video playback, node-style links between references, a pen for
-notes and sketches, shared boards and a Turkish interface.
+extended with video playback, multi-page PDFs, node-style links between
+references, a pen for notes and sketches, shared boards and a Turkish
+interface.
 
 Features
 --------
 
-* Reference images (PNG, JPG, WebP, GIF, ...) and videos (MP4, MOV, WebM, ...)
+* Reference images (PNG, JPG, WebP, GIF, ...), videos (MP4, MOV, WebM, ...) and
+  multi-page PDFs
 * Infinite canvas with pan, zoom, rotate, flip, crop, arrange and normalize
 * Video playback with a DaVinci-Resolve-like hover scrub (red playhead), a
   remembered preview frame, play/pause, mute and volume controls
+* PDFs behave like videos: hover to flip through the pages, the last shown page
+  is remembered and restored when the board is opened again
 * Node-editor style links between items: drag from the port on the item's edge,
   or use Tools -> Link Selected Items; linked children can be moved together
   with Ctrl+drag
 * Pen mode for freehand notes and sketches (Alt double-tap): brush colour and
   four brush sizes, smooth strokes
 * Text notes, opacity, grayscale and colour gamut view
-* Drag & drop of images, videos, boards, text, HTML, text files and links;
+* Drag & drop of images, videos, PDFs, boards, text, HTML, text files and links;
   dragging a selection out of the window copies it to other applications
 * Shared boards over the local network, paired with a session code (no IP
   addresses): authenticated, encrypted, with host approval, and the session
@@ -57,6 +61,7 @@ to store them in the new format.
 Images are embedded as PNG, JPG or WebP (depending on the "Image Storage
 Format" setting). Videos are referenced by their source path instead of being
 copied, and are only embedded when the original file is no longer available.
+PDFs are always embedded in full, so every page can be rendered at any size.
 Images (and any embedded videos) live in an ``sqlar`` table, so they can be
 extracted with the `sqlite command line program
 <https://www.sqlite.org/cli.html>`_:

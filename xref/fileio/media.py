@@ -35,6 +35,9 @@ VIDEO_EXTENSIONS = (
     '.wmv', '.mpg', '.mpeg',
 )
 
+# Multi-page documents
+PDF_EXTENSIONS = ('.pdf',)
+
 # mimetypes doesn't recognise some extensions on all platforms; make
 # sure we classify them correctly
 mimetypes.add_type('image/webp', '.webp')
@@ -42,6 +45,7 @@ mimetypes.add_type('video/mp4', '.m4v')
 mimetypes.add_type('video/x-flv', '.flv')
 mimetypes.add_type('video/mpeg', '.mpg')
 mimetypes.add_type('video/mpeg', '.mpeg')
+mimetypes.add_type('application/pdf', '.pdf')
 
 # Temp dirs for downloaded media, kept alive until process exit (as they
 # are needed while the media items are in use)
@@ -69,6 +73,14 @@ def _has_video_extension(path):
     return ext in VIDEO_EXTENSIONS
 
 
+def _has_pdf_extension(path):
+    if isinstance(path, QtCore.QUrl):
+        ext = posixpath.splitext(path.path())[1].lower()
+    else:
+        ext = posixpath.splitext(str(path))[1].lower()
+    return ext in PDF_EXTENSIONS
+
+
 def media_type(path):
     """Classify a file name or URL by media type.
 
@@ -78,11 +90,19 @@ def media_type(path):
     """
 
     mime = guess_mime_type(path)
+    if _has_pdf_extension(path) or mime == 'application/pdf':
+        return 'pdf'
     if mime and mime.startswith('image/'):
         return 'image'
     if mime and (mime.startswith('video/') or _has_video_extension(path)):
         return 'video'
     return None
+
+
+def is_pdf(path):
+    """Returns True if the given file name or URL refers to a PDF."""
+
+    return media_type(path) == 'pdf'
 
 
 def is_video(path):
@@ -164,6 +184,21 @@ def load_video(path):
     return local
 
 
+def load_pdf(path):
+    """Resolve a PDF file or URL to a local file name."""
+
+    local, url = _resolve_path_or_url(path)
+    if url:
+        if not is_pdf(url):
+            logger.info(f'Not a PDF URL: {url}')
+            return None
+        local = download_url(url)
+    if not local or not is_pdf(local):
+        logger.info(f'Not a PDF: {local}')
+        return None
+    return local
+
+
 def load_media(path):
     """Load any supported media file or URL (image or video).
 
@@ -174,6 +209,12 @@ def load_media(path):
     """
 
     mt = media_type(path)
+
+    if mt == 'pdf':
+        local = load_pdf(path)
+        if not local:
+            return None
+        return ('pdf', local, os.path.basename(local))
 
     if mt == 'video':
         local = load_video(path)
@@ -188,12 +229,15 @@ def load_media(path):
             return None
         return ('image', img, resolved)
 
-    # Unknown type: try image first, then video
+    # Unknown type: try PDF, then image, then video
+    local = load_pdf(path)
+    if local:
+        return ('pdf', local, os.path.basename(local))
     img, resolved = load_image(path)
     if not img.isNull():
         return ('image', img, resolved)
     local = load_video(path)
     if local:
         return ('video', local, os.path.basename(local))
-    logger.info(f'Could not load {path} as image or video')
+    logger.info(f'Could not load {path} as PDF, image or video')
     return None

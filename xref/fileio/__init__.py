@@ -92,7 +92,7 @@ def load_media_items(filenames, pos, scene, worker):
 
     import os.path
 
-    from xref.items import _probe_video
+    from xref.items import XRefPdfItem, _probe_pdf, _probe_video
 
     errors = []
     items = []
@@ -110,6 +110,16 @@ def load_media_items(filenames, pos, scene, worker):
         if mtype == 'image':
             item = XRefPixmapItem(data, resolved)
             itype = 'pixmap'
+        elif mtype == 'pdf':
+            probe = _probe_pdf(data)
+            item = XRefPdfItem(
+                pdf_path=data,
+                filename=os.path.basename(resolved),
+                size=probe['size'],
+                pages=probe['pages'],
+                preview=probe['preview'],
+            )
+            itype = 'pdf'
         else:
             probe = _probe_video(data)
             item = XRefVideoItem(

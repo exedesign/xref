@@ -794,8 +794,10 @@ class XRefGraphicsView(MainControlsMixin,
         logger.debug(f'Supported image types for reading: {formats}')
         filenames, f = QtWidgets.QFileDialog.getOpenFileNames(
             parent=self,
-            caption=tr('Select one or more images to open'),
-            filter=f'Images ({formats})')
+            caption=tr('Select one or more images or PDFs to open'),
+            filter=(f'Images and PDFs ({formats} *.pdf);;'
+                    f'PDF (*.pdf);;'
+                    f'Images ({formats})'))
         self.do_insert_images(filenames)
 
     def on_action_insert_video(self):

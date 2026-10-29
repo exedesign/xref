@@ -68,7 +68,8 @@ TRANSLATIONS = {
         'E&xport Scene...': 'Sahneyi &Dışa Aktar...',
         'Export &Images...': '&Görselleri Dışa Aktar...',
         '&Quit': '&Çıkış',
-        '&Images...': '&Görseller...',
+        '&Images / PDFs...': '&Görseller / PDF\'ler...',
+'&Images...': '&Görseller...',
         '&Video...': '&Video...',
         '&Play Video': 'Videoyu &Oynat',
         '&Draw (Pen Mode)': '&Çiz (Kalem Modu)',
@@ -166,7 +167,9 @@ TRANSLATIONS = {
         'Open file': 'Dosya aç',
         'Save file': 'Dosya kaydet',
         'Export Images': 'Görselleri Dışa Aktar',
-        'Select one or more images to open':
+        'Select one or more images or PDFs to open':
+    'Bir veya daha fazla görsel ya da PDF seçin',
+'Select one or more images to open':
             'Açmak için bir veya daha fazla görsel seçin',
         'Select one or more videos to open':
             'Açmak için bir veya daha fazla video seçin',
@@ -202,6 +205,7 @@ TRANSLATIONS = {
         'Color Gamut': 'Renk Aralığı',
         'Threshold:': 'Eşik:',
         'Video source not found:\n{path}': 'Video kaynağı bulunamadı:\n{path}',
+        'Page {current} / {total}': 'Sayfa {current} / {total}',
 
         # -- Items / pen / links -------------------------------------------
         'Select a video item first': 'Önce bir video öğesi seçin',

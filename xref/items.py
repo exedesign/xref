@@ -30,6 +30,7 @@ from PyQt6.QtCore import Qt
 from xref import commands
 from xref.config import XRefSettings
 from xref.constants import COLORS
+from xref.i18n import tr
 from xref.selection import SelectableMixin
 
 
@@ -971,6 +972,428 @@ class XRefDrawItem(XRefItemMixin, QtWidgets.QGraphicsPathItem):
         return self.shape().contains(point)
 
 @register_item
+class XRefPdfItem(XRefItemMixin, QtWidgets.QGraphicsItem):
+    """A multi-page PDF, shown page by page.
+
+    Like videos, moving the mouse horizontally over the document flips
+    through the pages and the page the pointer last rested on is
+    remembered (and saved with the board).
+    """
+
+    TYPE = 'pdf'
+    DEFAULT_SIZE = (640, 900)
+    DISPLAY_WIDTH = 640
+    RENDER_WIDTH = 1400
+    CONTROLS_HEIGHT = 24  # screen pixels
+    CONTROLS_MARGIN = 8
+
+    def __init__(self, pdf_path=None, filename=None, size=None, pages=0,
+                 preview=None, page=0, **kwargs):
+        super().__init__()
+        self.save_id = None
+        self.pdf_path = pdf_path
+        self.filename = filename or (
+            os.path.basename(pdf_path) if pdf_path else None)
+        self._pages = int(pages or 0)
+        self._width, self._height = (tuple(size) if size
+                                     else self.DEFAULT_SIZE)
+        self.is_image = False
+        self.is_pdf = True
+        self.init_selectable()
+        self.setAcceptHoverEvents(True)
+
+        self._document = None
+        self._page_cache = {}
+        self.pdf_bytes = None
+        self._temp_pdf_file = None
+        self._hovered = False
+        self._hover_pos = None
+        self._frame = (preview if preview is not None
+                       and not preview.isNull() else None)
+        if self._frame is not None:
+            self._page_cache[0] = self._frame
+        self._current_page = max(0, int(page or 0))
+        self._display_page = self._current_page
+        logger.debug(f'Initialized {self}')
+
+    def __del__(self):
+        try:
+            self.release_document()
+        except Exception:  # noqa: BLE001 - __del__ must not raise
+            pass
+
+    @classmethod
+    def create_from_data(cls, **kwargs):
+        item = kwargs.get('item')
+        data = kwargs.get('data', {}) or {}
+        if item is None:
+            item = cls()
+        item.filename = item.filename or data.get('filename')
+        if not item.pdf_path and data.get('pdf_path'):
+            item.pdf_path = data['pdf_path']
+        size = data.get('size')
+        if size:
+            item._width, item._height = size
+        item._pages = int(data.get('pages', item._pages) or 0)
+        item._current_page = max(0, int(data.get('page', 0) or 0))
+        item._display_page = item._current_page
+        item.setOpacity(data.get('opacity', 1))
+        return item
+
+    def __str__(self):
+        return (f'PDF "{self.filename}" {self._pages} page(s) '
+                f'{self._width} x {self._height}')
+
+    # -- Size / persistence ------------------------------------------------
+
+    @property
+    def pages(self):
+        return self._pages
+
+    @property
+    def current_page(self):
+        """The remembered page (0-based)."""
+
+        return self._current_page
+
+    def size(self):
+        return (self._width, self._height)
+
+    def bounding_rect_unselected(self):
+        return QtCore.QRectF(0, 0, self._width, self._height)
+
+    def get_extra_save_data(self):
+        return {
+            'filename': self.filename,
+            'opacity': self.opacity(),
+            'size': [self._width, self._height],
+            'pages': self._pages,
+            'page': int(self._current_page),
+            'pdf_path': self.pdf_path,
+        }
+
+    def get_filename_for_export(self, fmt, save_id_default=None):
+        save_id = self.save_id or save_id_default or 0
+        if self.filename:
+            basename = os.path.splitext(os.path.basename(self.filename))[0]
+            return f'{save_id:04}-{basename}.{fmt}'
+        return f'{save_id:04}.{fmt}'
+
+    def pdf_to_bytes(self):
+        """The original PDF bytes (embedded in boards)."""
+
+        if self.pdf_bytes is not None:
+            return self.pdf_bytes
+        if self.pdf_path and os.path.isfile(self.pdf_path):
+            with open(self.pdf_path, 'rb') as f:
+                return f.read()
+        return None
+
+    def pdf_from_bytes(self, data):
+        self.pdf_bytes = data
+
+    def _local_pdf_path(self):
+        if self.pdf_path and os.path.isfile(self.pdf_path):
+            return self.pdf_path
+        if (self._temp_pdf_file
+                and os.path.isfile(self._temp_pdf_file)):
+            return self._temp_pdf_file
+        if self.pdf_bytes is not None:
+            tmp = tempfile.NamedTemporaryFile(
+                prefix='xref_pdf_', suffix='.pdf', delete=False)
+            with tmp:
+                tmp.write(self.pdf_bytes)
+            self._temp_pdf_file = tmp.name
+            return tmp.name
+        return None
+
+    def has_source(self):
+        return self._local_pdf_path() is not None
+
+    # -- Document ----------------------------------------------------------
+
+    def _ensure_document(self):
+        if self._document is not None:
+            return True
+        path = self._local_pdf_path()
+        if path is None:
+            return False
+        try:
+            from PyQt6 import QtPdf
+        except ImportError:  # pragma: no cover
+            return False
+        document = QtPdf.QPdfDocument(None)
+        document.load(path)
+        elapsed = QtCore.QElapsedTimer()
+        elapsed.start()
+        while document.pageCount() == 0 and elapsed.elapsed() < 5000:
+            QtCore.QCoreApplication.processEvents()
+            QtCore.QThread.msleep(5)
+        if document.pageCount() == 0:
+            logger.info(f'Could not open PDF {self.filename}')
+            document.deleteLater()
+            return False
+        if not self._pages:
+            self._pages = document.pageCount()
+        self._document = document
+        return True
+
+    def release_document(self):
+        """Frees the PDF renderer; the current page image is kept."""
+
+        if getattr(self, '_document', None) is not None:
+            try:
+                self._document.close()
+                self._document.deleteLater()
+            except RuntimeError:
+                pass
+            self._document = None
+
+    def page_image(self, index):
+        """The rendered image of the given page (cached, lazy)."""
+
+        if self._pages:
+            index = max(0, min(self._pages - 1, int(index)))
+        else:
+            index = 0
+        cached = self._page_cache.get(index)
+        if cached is not None:
+            return cached
+        if not self._ensure_document():
+            return None
+        point = self._document.pagePointSize(index)
+        ratio = point.height() / max(point.width(), 1.0)
+        width = min(self.RENDER_WIDTH, max(200, int(self._width)))
+        image = _pdf_paper_image(self._document.render(
+            index, QtCore.QSize(width, max(1, int(round(width * ratio))))))
+        if image is None or image.isNull():
+            return None
+        while len(self._page_cache) > 6:
+            self._page_cache.pop(next(iter(self._page_cache)), None)
+        self._page_cache[index] = image
+        return image
+
+    def set_page(self, index, pin=True):
+        """Shows the given page; ``pin`` remembers it for later."""
+
+        if self._pages:
+            index = max(0, min(self._pages - 1, int(index)))
+        else:
+            index = 0
+        if pin:
+            self._current_page = index
+        self._display_page = index
+        image = self.page_image(index)
+        if image is not None:
+            self._frame = image
+        self.update()
+
+    def next_page(self):
+        if self._pages:
+            self.set_page((self._display_page + 1) % self._pages)
+
+    def previous_page(self):
+        if self._pages:
+            self.set_page((self._display_page - 1) % self._pages)
+
+    def pin_page(self):
+        """Goes back to the remembered page (after hovering elsewhere)."""
+
+        self._display_page = self._current_page
+        image = self.page_image(self._current_page)
+        if image is not None:
+            self._frame = image
+        self.update()
+
+    def _page_at_x(self, x):
+        if self._pages <= 1:
+            return 0
+        ratio = max(0.0, min(1.0, x / max(1.0, self._width)))
+        return min(self._pages - 1, int(ratio * self._pages))
+
+    def itemChange(self, change, value):
+        GIC = QtWidgets.QGraphicsItem.GraphicsItemChange
+        if change == GIC.ItemSceneHasChanged and value is None:
+            self.release_document()
+        return super().itemChange(change, value)
+
+    # -- Controls ----------------------------------------------------------
+
+    def _ui(self, pixels):
+        return self.fixed_length_for_viewport(pixels)
+
+    def _controls_rect(self):
+        margin = min(self._ui(self.CONTROLS_MARGIN), self._width * 0.05)
+        height = min(self._ui(self.CONTROLS_HEIGHT), self._height * 0.12)
+        return QtCore.QRectF(margin, self._height - height - margin,
+                             max(0, self._width - 2 * margin), height)
+
+    def _arrow_rects(self):
+        rect = self._controls_rect()
+        size = rect.height()
+        left = QtCore.QRectF(rect.left(), rect.top(), size, size)
+        right = QtCore.QRectF(rect.right() - size, rect.top(), size, size)
+        return left, right
+
+    def _controls_visible(self):
+        return self._hovered or self._display_page != self._current_page
+
+    def is_control_hit(self, scene_pos):
+        local = self.mapFromScene(scene_pos)
+        left, right = self._arrow_rects()
+        return left.contains(local) or right.contains(local)
+
+    # -- Events ------------------------------------------------------------
+
+    def hoverEnterEvent(self, event):
+        self._hovered = True
+        if self._pages <= 1:
+            self._ensure_document()
+            self._pages = self._pages or (
+                self._document.pageCount() if self._document else 0)
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverMoveEvent(self, event):
+        super().hoverMoveEvent(event)
+        pos = event.pos()
+        self._hover_pos = pos
+        if not self.bounding_rect_unselected().contains(pos):
+            self.update()
+            return
+        if self._controls_rect().contains(pos):
+            self.set_cursor(QtGui.QCursor(
+                Qt.CursorShape.PointingHandCursor))
+            self._cursor_set = True
+            self.update()
+            return
+        if getattr(self, '_cursor_set', False):
+            self._cursor_set = False
+            self.unset_cursor()
+        scene = self.scene()
+        dragging = scene is not None and scene.active_mode is not None
+        if not dragging and self._pages > 0:
+            # Hover scrubbing: the horizontal position picks the page and
+            # that page stays remembered when the pointer leaves
+            page = self._page_at_x(pos.x())
+            if page != self._display_page:
+                self.set_page(page)
+        self.update()
+
+    def hoverLeaveEvent(self, event):
+        self._hovered = False
+        self._hover_pos = None
+        if getattr(self, '_cursor_set', False):
+            self._cursor_set = False
+            self.unset_cursor()
+        self.pin_page()
+        super().hoverLeaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.is_control_hit(event.scenePos())):
+            left, right = self._arrow_rects()
+            if left.contains(event.pos()):
+                self.previous_page()
+            else:
+                self.next_page()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if self.is_control_hit(event.scenePos()):
+            self.mousePressEvent(event)
+            return
+        self.next_page()
+        event.accept()
+
+    # -- Painting ----------------------------------------------------------
+
+    def paint(self, painter, option, widget):
+        rect = self.bounding_rect_unselected()
+        painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform)
+        if self._frame is not None and not self._frame.isNull():
+            painter.drawImage(rect, self._frame)
+        else:
+            self._paint_placeholder(painter, rect)
+
+        if (self._hovered and self._hover_pos
+                and not self._controls_rect().contains(self._hover_pos)):
+            pen = QtGui.QPen(QtGui.QColor(255, 60, 60))
+            pen.setCosmetic(True)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            x = max(0, min(self._width, self._hover_pos.x()))
+            painter.drawLine(QtCore.QPointF(x, 0),
+                             QtCore.QPointF(x, self._height))
+
+        if self._controls_visible() and self._pages > 0:
+            self._paint_controls(painter)
+        self.paint_selectable(painter, option, widget)
+
+    def _paint_placeholder(self, painter, rect):
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(45, 45, 48)))
+        painter.drawRect(rect)
+        painter.setPen(QtGui.QColor(230, 230, 230))
+        font = painter.font()
+        font.setPointSizeF(max(1.0, self._ui(11)))
+        painter.setFont(font)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter,
+                         self.filename or 'PDF')
+
+    def _paint_controls(self, painter):
+        rect = self._controls_rect()
+        radius = rect.height() * 0.25
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(0, 0, 0, 160))
+        painter.drawRoundedRect(rect, radius, radius)
+
+        # Page progress
+        ratio = ((self._display_page + 1) / max(1, self._pages))
+        track_h = max(self._ui(3), 0.4)
+        track = QtCore.QRectF(rect.left() + rect.height(),
+                              rect.center().y() - track_h / 2,
+                              max(1.0, rect.width() - 2 * rect.height()),
+                              track_h)
+        painter.setBrush(QtGui.QColor(255, 255, 255, 80))
+        painter.drawRoundedRect(track, track_h / 2, track_h / 2)
+        done = QtCore.QRectF(track)
+        done.setWidth(track.width() * ratio)
+        painter.setBrush(QtGui.QColor(0, 140, 255))
+        painter.drawRoundedRect(done, track_h / 2, track_h / 2)
+
+        # Arrows
+        left, right = self._arrow_rects()
+        painter.setBrush(QtGui.QColor(240, 240, 240))
+        for arrow_rect, direction in ((left, -1), (right, 1)):
+            cx, cy = arrow_rect.center().x(), arrow_rect.center().y()
+            size = arrow_rect.height() * 0.22
+            path = QtGui.QPainterPath()
+            path.moveTo(cx + size * direction, cy - size)
+            path.lineTo(cx - size * direction, cy)
+            path.lineTo(cx + size * direction, cy + size)
+            path.closeSubpath()
+            painter.drawPath(path)
+
+        # Page counter
+        painter.setPen(QtGui.QColor(245, 245, 245))
+        font = painter.font()
+        font.setPointSizeF(max(1.0, self._ui(9)))
+        painter.setFont(font)
+        painter.drawText(
+            QtCore.QRectF(track.left(), rect.top(), track.width(),
+                          rect.height()),
+            Qt.AlignmentFlag.AlignCenter,
+            tr('Page {current} / {total}',
+               current=self._display_page + 1, total=self._pages))
+
+    def contains(self, point):
+        return self.bounding_rect_unselected().contains(point)
+
+
+@register_item
 class XRefErrorItem(XRefItemMixin, QtWidgets.QGraphicsTextItem):
     """Class for displaying error messages when an item can't be loaded
     from a bee file.
@@ -1061,6 +1484,76 @@ def _release_all_video_players():
             item.release_player()
         except Exception:  # noqa: BLE001 - best effort on shutdown
             pass
+
+
+def _pdf_paper_image(image):
+    """Composites a rendered PDF page onto white paper.
+
+    Qt only renders the page contents, so pages that don't paint their own
+    background would otherwise look transparent on the board.
+    """
+
+    if image is None or image.isNull() or not image.hasAlphaChannel():
+        return image
+    paper = QtGui.QImage(image.size(), QtGui.QImage.Format.Format_RGB32)
+    paper.fill(QtGui.QColor(255, 255, 255))
+    painter = QtGui.QPainter(paper)
+    painter.drawImage(0, 0, image)
+    painter.end()
+    return paper
+
+
+def _probe_pdf(path, display_width=640, render_width=1400, timeout_ms=8000):
+    """Probe a PDF for page count, display size and its first page.
+
+    Runs its own event loop on the calling thread, so it can be used
+    from a worker thread without blocking the GUI.
+
+    :param str path: Local PDF file name
+    :rtype: dict
+    :return: {'pages': int, 'size': (int, int) or None,
+              'preview': QImage or None}
+    """
+
+    result = {'pages': 0, 'size': None, 'preview': None}
+    try:
+        from PyQt6 import QtPdf
+    except ImportError:  # pragma: no cover - QtPdf is part of PyQt6
+        logger.info('PDF support is not available')
+        return result
+
+    document = QtPdf.QPdfDocument(None)
+    loop = QtCore.QEventLoop()
+    timer = QtCore.QTimer()
+    timer.setSingleShot(True)
+    timer.timeout.connect(loop.quit)
+
+    def check_done():
+        if document.pageCount() > 0 and loop.isRunning():
+            loop.quit()
+
+    document.statusChanged.connect(lambda status: check_done())
+    timer.start(timeout_ms)
+    document.load(path)
+    if document.pageCount() == 0:
+        loop.exec()
+    timer.stop()
+
+    pages = document.pageCount()
+    if pages:
+        point = document.pagePointSize(0)
+        ratio = point.height() / max(point.width(), 1.0)
+        width = min(render_width, max(200, display_width))
+        image = _pdf_paper_image(document.render(0, QtCore.QSize(
+            width, max(1, int(round(width * ratio))))))
+        if image is not None and not image.isNull():
+            display_height = max(1, int(round(display_width * ratio)))
+            result.update(pages=pages,
+                          size=(display_width, display_height),
+                          preview=image)
+    document.close()
+    document.deleteLater()
+    return result
 
 
 def _format_ms(ms):

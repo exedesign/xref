@@ -155,7 +155,7 @@ actions = ActionList([
     ),
     Action(
         id='insert_images',
-        text='&Images...',
+        text='&Images / PDFs...',
         shortcuts=['Ctrl+I'],
         callback='on_action_insert_images',
     ),

@@ -45,8 +45,8 @@ import uuid
 from PyQt6 import QtCore, QtGui, QtNetwork
 
 from xref.i18n import tr
-from xref.items import XRefDrawItem, XRefPixmapItem, XRefTextItem, \
-    XRefVideoItem, item_registry
+from xref.items import XRefDrawItem, XRefPdfItem, XRefPixmapItem, \
+    XRefTextItem, XRefVideoItem, item_registry
 
 
 logger = logging.getLogger(__name__)
@@ -258,6 +258,8 @@ def item_asset_bytes(item):
         if image.isNull():
             return None
         return _png_bytes(image)
+    if item.TYPE == XRefPdfItem.TYPE:
+        return item.pdf_to_bytes() or None
     if item.TYPE == XRefVideoItem.TYPE:
         if item.has_source_file():
             try:
@@ -364,6 +366,20 @@ def item_state(item, include_image=True):
                 if len(data) <= ASSET_INLINE_LIMIT:
                     state['asset']['inline'] = base64.b64encode(
                         data).decode('ascii')
+    elif item.TYPE == XRefPdfItem.TYPE:
+        state['filename'] = item.filename
+        state['size'] = list(item.size())
+        state['pages'] = item.pages
+        if include_image:
+            # The page is only shared with the initial state, so peers
+            # can browse independently afterwards
+            state['page'] = int(item.current_page)
+            data = item_asset_bytes(item)
+            if data:
+                state['asset'] = _asset_meta(data, item.filename, 'pdf')
+                if len(data) <= ASSET_INLINE_LIMIT:
+                    state['asset']['inline'] = base64.b64encode(
+                        data).decode('ascii')
     elif item.TYPE == XRefVideoItem.TYPE:
         state['filename'] = item.filename
         state['size'] = list(item.size)
@@ -435,6 +451,17 @@ def create_item_from_state(state):
             item._muted = bool(state.get('muted', False))
         except (TypeError, ValueError):
             pass
+    elif itype == XRefPdfItem.TYPE:
+        size = state.get('size')
+        item = XRefPdfItem(
+            filename=state.get('filename'),
+            size=tuple(size) if size else None,
+            pages=int(state.get('pages') or 0),
+            page=int(state.get('page') or 0))
+        data = _state_media_bytes(state, 'pdf')
+        if data:
+            item.pdf_from_bytes(data)
+        item.setOpacity(state.get('opacity', 1))
     elif itype == XRefTextItem.TYPE:
         item = XRefTextItem(state.get('text', ''),
                            text_width=state.get('text_width'))
@@ -513,6 +540,12 @@ def apply_asset_to_item(item, data, path=None):
         state = getattr(item, '_collab_state', None)
         if state:
             _apply_media_flags(item, state)
+        item.update()
+        return True
+    if item.TYPE == XRefPdfItem.TYPE:
+        item.pdf_from_bytes(data)
+        item.release_document()
+        item.set_page(item.current_page)
         item.update()
         return True
     if item.TYPE == XRefVideoItem.TYPE:
