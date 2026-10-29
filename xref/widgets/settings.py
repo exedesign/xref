@@ -242,6 +242,35 @@ class LanguageWidget(RadioGroup):
         (code, name, name) for code, name in i18n.LANGUAGES.items())
 
 
+class GridStyleWidget(RadioGroup):
+    TITLE = 'Background Grid:'
+    HELPTEXT = ('The grid style of the canvas. Items can be snapped to the '
+                'grid even while it is invisible.')
+    KEY = 'View/grid_style'
+    OPTIONS = (
+        ('none', 'Off', 'Grid off'),
+        ('lines', 'Lines', 'Line grid'),
+        ('dots', 'Dots', 'Dotted grid'),
+    )
+
+
+class GridSpacingWidget(IntegerGroup):
+    TITLE = 'Grid Spacing (px):'
+    HELPTEXT = ('The distance between grid lines/dots on the screen, and '
+                'the snap distance when snapping is on.')
+    KEY = 'View/grid_spacing'
+    MIN = 5
+    MAX = 1000
+
+
+class GridSnapWidget(SingleCheckboxGroup):
+    TITLE = 'Snap Items to Grid:'
+    HELPTEXT = ('Items snap to the grid when they are dropped after '
+                'dragging, even when the grid itself is hidden.')
+    LABEL = 'Snap items to the grid'
+    KEY = 'View/grid_snap'
+
+
 class ModelMaxTrianglesWidget(IntegerGroup):
     TITLE = 'Model Quality (Triangles):'
     HELPTEXT = ('Maximum number of triangles rendered per 3D model. Higher '
@@ -342,6 +371,15 @@ class SettingsDialog(QtWidgets.QDialog):
         items_layout.addWidget(ArrangeGapWidget(), 1, 0)
         items_layout.addWidget(ArrangeDefaultWidget(), 1, 1)
         tabs.addTab(items, tr('&Images && Items'))
+
+        # View (grid)
+        view_tab = QtWidgets.QWidget()
+        view_layout = QtWidgets.QGridLayout()
+        view_tab.setLayout(view_layout)
+        view_layout.addWidget(GridStyleWidget(), 0, 0)
+        view_layout.addWidget(GridSpacingWidget(), 0, 1)
+        view_layout.addWidget(GridSnapWidget(), 1, 0)
+        tabs.addTab(view_tab, tr('&View'))
 
         # 3D Viewer
         viewer = QtWidgets.QWidget()

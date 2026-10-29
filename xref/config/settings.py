@@ -203,6 +203,19 @@ class XRefSettings(QtCore.QSettings):
             'cast': int,
             'validate': lambda x: 0 <= x <= 1000,
         },
+        'View/grid_style': {
+            'default': 'none',
+            'validate': lambda x: x in ('none', 'lines', 'dots'),
+        },
+        'View/grid_spacing': {
+            'default': 50,
+            'cast': int,
+            'validate': lambda x: 5 <= x <= 1000,
+        },
+        'View/grid_snap': {
+            'default': False,
+            'cast': bool,
+        },
         'Items/image_allocation_limit': {
             'default': 256,
             'cast': int,

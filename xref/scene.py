@@ -1218,13 +1218,42 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
                 and self.multi_select_item.active_mode is None
                 and self.selectedItems()[0].active_mode is None):
             delta = event.scenePos() - self.event_start
-            if not delta.isNull():
+            snap = self._grid_snap_delta(delta)
+            if not snap.isNull():
+                self.undo_stack.push(
+                    commands.MoveItemsBy(self.selectedItems(),
+                                         snap,
+                                         ignore_first_redo=True))
+            elif not delta.isNull():
                 self.undo_stack.push(
                     commands.MoveItemsBy(self.selectedItems(),
                                          delta,
                                          ignore_first_redo=True))
         self.active_mode = None
         super().mouseReleaseEvent(event)
+
+    def _grid_snap_delta(self, delta):
+        """Extra movement after a drag that snaps the selection to the grid.
+
+        Returns a null vector when grid snapping is off.
+        """
+
+        views = self.views()
+        if not views:
+            return QtCore.QPointF()
+        view = views[0]
+        snap_target = getattr(view, 'snap_position_to_grid', None)
+        if snap_target is None:
+            return QtCore.QPointF()
+        items = self.selectedItems()
+        if not items:
+            return QtCore.QPointF()
+        # Snap the first item's position (all items moved by the same
+        # delta, so snapping one aligns the whole selection)
+        item = items[0]
+        target = item.mapToScene(item.boundingRect().center())
+        snapped = snap_target(target)
+        return snapped - target
 
     def selectedItems(self, user_only=False):
         """If ``user_only`` is set to ``True``, only return items added

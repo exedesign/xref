@@ -1747,6 +1747,86 @@ class XRefGraphicsView(MainControlsMixin,
             self._scene_cursor_active = False
             self.viewport().unsetCursor()
 
+    # -- Background grid -----------------------------------------------------
+
+    def grid_visible(self):
+        """Whether the background grid is drawn."""
+
+        try:
+            return self.settings.valueOrDefault('View/grid_style') != 'none'
+        except Exception:  # noqa: BLE001 - settings not ready
+            return False
+
+    def drawBackground(self, painter, rect):
+        super().drawBackground(painter, rect)
+        try:
+            style = self.settings.valueOrDefault('View/grid_style')
+        except Exception:  # noqa: BLE001
+            return
+        if style == 'none':
+            return
+        try:
+            spacing = float(self.settings.valueOrDefault(
+                'View/grid_spacing'))
+        except (TypeError, ValueError):
+            spacing = 50.0
+        if spacing < 5:
+            return
+        # The grid has a constant size on screen, independent of the zoom
+        scale = max(self.get_scale(), 0.01)
+        spacing /= scale
+        left = rect.left() - (rect.left() % spacing)
+        top = rect.top() - (rect.top() % spacing)
+
+        color = self.backgroundBrush().color()
+        grid_color = QtGui.QColor(
+            255 - color.red(), 255 - color.green(), 255 - color.blue())
+        # A soft contrast against the canvas, readable on any background
+        grid_color.setAlpha(40 if style == 'lines' else 90)
+        pen = QtGui.QPen(grid_color)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+
+        if style == 'lines':
+            x = left
+            while x <= rect.right():
+                painter.drawLine(QtCore.QPointF(x, rect.top()),
+                                 QtCore.QPointF(x, rect.bottom()))
+                x += spacing
+            y = top
+            while y <= rect.bottom():
+                painter.drawLine(QtCore.QPointF(rect.left(), y),
+                                 QtCore.QPointF(rect.right(), y))
+                y += spacing
+        else:  # dots
+            painter.setBrush(grid_color)
+            painter.setPen(Qt.PenStyle.NoPen)
+            radius = 1.0 / scale
+            y = top
+            while y <= rect.bottom():
+                x = left
+                while x <= rect.right():
+                    painter.drawEllipse(QtCore.QPointF(x, y), radius,
+                                        radius)
+                    x += spacing
+                y += spacing
+
+    def snap_position_to_grid(self, scene_pos):
+        """The scene position snapped to the grid (if snapping is on)."""
+
+        try:
+            if not self.settings.valueOrDefault('View/grid_snap'):
+                return scene_pos
+            spacing = float(self.settings.valueOrDefault(
+                'View/grid_spacing'))
+        except (TypeError, ValueError):
+            return scene_pos
+        scale = max(self.get_scale(), 0.01)
+        spacing /= scale
+        return QtCore.QPointF(
+            round(scene_pos.x() / spacing) * spacing,
+            round(scene_pos.y() / spacing) * spacing)
+
     def recalc_scene_rect(self):
         """Resize the scene rectangle so that it is always one view width
         wider than all items' bounding box at each side and one view

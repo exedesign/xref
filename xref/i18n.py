@@ -404,6 +404,29 @@ TRANSLATIONS = {
         'Minimize': 'Küçült',
         'Full screen': 'Tam ekran',
         'Close window': 'Pencereyi kapat',
+        'Background Grid:': 'Arka Plan Izgarası:',
+        'The grid style of the canvas. Items can be snapped to the '
+        'grid even while it is invisible.':
+            'Tuvalin ızgara stili. Öğeler ızgara görünmezken bile '
+            'ızgaraya hizalanabilir.',
+        'Off': 'Kapalı',
+        'Lines': 'Çizgiler',
+        'Dots': 'Noktalar',
+        'Grid off': 'Izgara kapalı',
+        'Line grid': 'Çizgi ızgara',
+        'Dotted grid': 'Noktalı ızgara',
+        'Grid Spacing (px):': 'Izgara Aralığı (px):',
+        'The distance between grid lines/dots on the screen, and the '
+        'snap distance when snapping is on.':
+            'Ekranda ızgara çizgileri/noktaları arasındaki mesafe ve '
+            'hizalama açıkken yapışma mesafesi.',
+        'Snap Items to Grid:': 'Öğeleri Izgaraya Hizala:',
+        'Items snap to the grid when they are dropped after dragging, '
+        'even when the grid itself is hidden.':
+            'Öğeler sürüklenip bırakıldığında ızgaraya hizalanır; '
+            'ızgara gizliyken de çalışır.',
+        'Snap items to the grid': 'Öğeleri ızgaraya hizala',
+        '&View': '&Görünüm',
         '3&D Viewer': '3&D Görüntüleyici',
         'Model Quality (Triangles):': 'Model Kalitesi (Üçgen):',
         'Maximum number of triangles rendered per 3D model. Higher '

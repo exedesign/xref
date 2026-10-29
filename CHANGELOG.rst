@@ -177,6 +177,12 @@ Added
   changed and are also applied to selected strokes; the size stays
   constant on screen at any zoom level. Strokes can be selected, moved,
   restyled and deleted, and are saved in bee files.
+* Background grid with two styles (classic lines and dots), configurable
+  spacing and optional item snapping. Items snap to the grid when they are
+  dropped, even while the grid is hidden (Settings -> View). The grid keeps
+  a constant size on screen at any zoom level and its colour adapts to the
+  canvas background.
+
 * 3D viewer performance can be tuned in Settings -> 3D Viewer: the
   maximum number of triangles per model (quality) is applied live to
   all open models, and the hover preview interval throttles rotation
