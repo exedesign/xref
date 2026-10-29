@@ -51,10 +51,8 @@ Added
   in Settings -> Miscellaneous -> Window Edge Move Area). Ctrl+Alt+drag and
   Ctrl+M still move the window. The title bar and the always-on-top state
   are remembered between sessions.
-* 3D reference images: OBJ, STL, PLY, GLB, glTF and USDZ models (and
-  FBX when the
-  FBX and binary USDC payloads when the optional pyassimp package is
-  installed) can be dropped into the
+* 3D reference images: OBJ, STL, PLY, GLB, glTF and USDZ models and
+  binary FBX files can be dropped into the
   board like any other media. The mesh is rendered in software with
   simple shading, no external 3D engine needed. Like videos and PDFs,
   moving the mouse over the model rotates it as a preview, a single
@@ -179,6 +177,13 @@ Added
   changed and are also applied to selected strokes; the size stays
   constant on screen at any zoom level. Strokes can be selected, moved,
   restyled and deleted, and are saved in bee files.
+* Huge models stay responsive: meshes are reduced to 25 000 triangles
+  (keeping their silhouette) and re-indexed before rendering, the
+  projection is cached per view angle, and hover previews of heavy
+  meshes are throttled. glTF files can reference a .bin file sitting
+  next to them. USDZ archives with binary USDC meshes explain how to
+  convert them (OBJ/GLB) or install assimp.
+
 
 Fixed
 -----
