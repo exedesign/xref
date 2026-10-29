@@ -146,6 +146,117 @@ def test_damaged_files_raise_value_error():
         model3d.parse_model(b'\0' * 20, 'x.stl')
 
 
+# -- GLB / glTF / USDZ ------------------------------------------------------
+
+import base64
+import json as _json
+import zipfile as _zipfile
+
+
+def make_glb():
+    """A minimal GLB with one indexed triangle."""
+
+    positions = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    bin_payload = (struct.pack('<9f', *positions)
+                   + struct.pack('<3H', 0, 1, 2))
+    doc = {
+        'asset': {'version': '2.0'},
+        'meshes': [{'primitives': [{'attributes': {'POSITION': 0},
+                                    'indices': 1}]}],
+        'accessors': [
+            {'bufferView': 0, 'componentType': 5126, 'count': 3,
+             'type': 'VEC3'},
+            {'bufferView': 1, 'componentType': 5123, 'count': 3,
+             'type': 'SCALAR'}],
+        'bufferViews': [
+            {'buffer': 0, 'byteOffset': 0, 'byteLength': 36},
+            {'buffer': 0, 'byteOffset': 36, 'byteLength': 6}],
+        'buffers': [{'byteLength': len(bin_payload)}],
+    }
+    json_chunk = _json.dumps(doc).encode()
+    while len(json_chunk) % 4:
+        json_chunk += b' '
+    bin_chunk = bin_payload
+    while len(bin_chunk) % 4:
+        bin_chunk += b'\0'
+    glb = b'glTF' + struct.pack(
+        '<II', 2, 12 + 8 + len(json_chunk) + 8 + len(bin_chunk))
+    glb += struct.pack('<I4s', len(json_chunk), b'JSON') + json_chunk
+    glb += struct.pack('<I4s', len(bin_chunk), b'BIN\x00') + bin_chunk
+    return glb, positions
+
+
+def make_usdz():
+    usda = (b'#usda 1.0\n'
+            b'def Mesh "Mesh"\n{\n'
+            b'    int[] faceVertexCounts = [3]\n'
+            b'    int[] faceVertexIndices = [0, 1, 2]\n'
+            b'    point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]\n'
+            b'}\n')
+    buf = __import__('io').BytesIO()
+    with _zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr('model.usda', usda)
+    return buf.getvalue()
+
+
+def test_glb_parser():
+    glb, positions = make_glb()
+    mesh = model3d.parse_model(glb, 'tri.glb')
+    assert mesh['triangles'] == [(0, 1, 2)]
+    assert mesh['vertices'] == positions
+
+
+def test_gltf_with_data_uri_buffer():
+    glb, positions = make_glb()
+    doc = _json.loads(_json.dumps({
+        'meshes': [{'primitives': [{'attributes': {'POSITION': 0},
+                                    'indices': 1}]}],
+        'accessors': [
+            {'bufferView': 0, 'componentType': 5126, 'count': 3,
+             'type': 'VEC3'},
+            {'bufferView': 1, 'componentType': 5123, 'count': 3,
+             'type': 'SCALAR'}],
+        'bufferViews': [
+            {'buffer': 0, 'byteOffset': 0, 'byteLength': 36},
+            {'buffer': 0, 'byteOffset': 36, 'byteLength': 6}],
+        'buffers': [{'byteLength': 42, 'uri': 'data:application/'
+                     'octet-stream;base64,'
+                     + base64.b64encode(glb[12:]).decode()[:0]
+                     + base64.b64encode(
+                         struct.pack('<9f', *positions)
+                         + struct.pack('<3H', 0, 1, 2)).decode()}],
+    }))
+    mesh = model3d.parse_model(_json.dumps(doc).encode(), 'tri.gltf')
+    assert mesh['triangles'] == [(0, 1, 2)]
+
+
+def test_usdz_parser():
+    mesh = model3d.parse_model(make_usdz(), 'model.usdz')
+    assert mesh['triangles'] == [(0, 1, 2)]
+    assert len(mesh['vertices']) == 9
+
+
+def test_usdz_quad_is_fan_triangulated():
+    usda = (b'#usda 1.0\n'
+            b'def Mesh "Mesh"\n{\n'
+            b'    int[] faceVertexCounts = [4]\n'
+            b'    int[] faceVertexIndices = [0, 1, 2, 3]\n'
+            b'    point3f[] points = [(0,0,0), (1,0,0), (1,1,0), (0,1,0)]'
+            b'\n}\n')
+    import io as _io
+    buf = _io.BytesIO()
+    with _zipfile.ZipFile(buf, 'w') as zf:
+        zf.writestr('model.usda', usda)
+    mesh = model3d.parse_model(buf.getvalue(), 'quad.usdz')
+    assert mesh['triangles'] == [(0, 1, 2), (0, 2, 3)]
+
+
+def test_new_model_formats_are_classified():
+    assert media_type('a.glb') == 'model'
+    assert media_type('b.gltf') == 'model'
+    assert media_type('c.usdz') == 'model'
+
+
 # -- Item behaviour ---------------------------------------------------------
 
 def make_model_item(view):

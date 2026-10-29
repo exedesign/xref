@@ -19,7 +19,7 @@ Features
 --------
 
 * Reference images (PNG, JPG, WebP, GIF, ...), videos (MP4, MOV, WebM, ...),
-  multi-page PDFs and 3D models (OBJ, STL, PLY)
+  multi-page PDFs and 3D models (OBJ, STL, PLY, GLB, glTF, USDZ)
 * Frameless, PureRef-like window: double click the empty canvas for full
   screen, an always-on-top mode and resizable edges
 * Infinite canvas with pan, zoom, rotate, flip, crop, arrange and normalize

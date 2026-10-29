@@ -1100,7 +1100,8 @@ class XRefGraphicsView(MainControlsMixin,
             filter=(f'Images and PDFs ({formats} *.pdf);;'
                     f'PDF (*.pdf);;'
                     f'Images ({formats});;'
-                    f'3D Models (*.obj *.stl *.ply *.fbx)'))
+                    f'3D Models (*.obj *.stl *.ply *.fbx *.glb *.gltf '
+                    f'*.usdz)'))
         self.do_insert_images(filenames)
 
     def on_action_insert_video(self):

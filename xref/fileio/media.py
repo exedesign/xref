@@ -39,7 +39,7 @@ VIDEO_EXTENSIONS = (
 PDF_EXTENSIONS = ('.pdf',)
 
 # Simple 3D models, rendered in software (see xref/model3d.py)
-MODEL3D_EXTENSIONS = ('.obj', '.stl', '.ply', '.fbx')
+MODEL3D_EXTENSIONS = ('.obj', '.stl', '.ply', '.fbx', '.glb', '.gltf', '.usdz')
 
 # mimetypes doesn't recognise some extensions on all platforms; make
 # sure we classify them correctly

@@ -51,8 +51,10 @@ Added
   in Settings -> Miscellaneous -> Window Edge Move Area). Ctrl+Alt+drag and
   Ctrl+M still move the window. The title bar and the always-on-top state
   are remembered between sessions.
-* 3D reference images: OBJ, STL and PLY models (and FBX when the
-  optional pyassimp package is installed) can be dropped into the
+* 3D reference images: OBJ, STL, PLY, GLB, glTF and USDZ models (and
+  FBX when the
+  FBX and binary USDC payloads when the optional pyassimp package is
+  installed) can be dropped into the
   board like any other media. The mesh is rendered in software with
   simple shading, no external 3D engine needed. Like videos and PDFs,
   moving the mouse over the model rotates it as a preview, a single

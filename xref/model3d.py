@@ -32,7 +32,7 @@ import struct
 
 logger = logging.getLogger(__name__)
 
-MODEL_EXTENSIONS = ('.obj', '.stl', '.ply', '.fbx')
+MODEL_EXTENSIONS = ('.obj', '.stl', '.ply', '.fbx', '.glb', '.gltf', '.usdz')
 
 
 def parse_model(data, filename=None):
@@ -55,6 +55,10 @@ def parse_model(data, filename=None):
         return _parse_stl(data)
     if ext == '.ply':
         return _parse_ply(data)
+    if ext in ('.glb', '.gltf'):
+        return _parse_gltf(data)
+    if ext == '.usdz':
+        return _parse_usdz(data)
     if ext == '.fbx':
         return _parse_fbx(data)
     # Unknown extension: sniff the content
@@ -62,6 +66,10 @@ def parse_model(data, filename=None):
         return _parse_stl(data)
     if b'ply' in data[:64]:
         return _parse_ply(data)
+    if data[:4] == b'glTF':
+        return _parse_gltf(data)
+    if data[:2] == b'PK':
+        return _parse_usdz(data)
     raise ValueError('Unsupported 3D format')
 
 
@@ -279,6 +287,215 @@ def _parse_ply(data):
         raise ValueError('PLY file has no faces')
     return {'vertices': vertices, 'triangles': triangles,
             'has_normals': has_normals, 'has_colors': has_colors}
+
+
+# -- glTF / GLB --------------------------------------------------------------
+
+COMPONENT_SIZE = {'SCALAR': 4, 'VEC2': 8, 'VEC3': 12, 'VEC4': 16}
+
+
+def _parse_gltf(data):
+    """Parses binary glTF (.glb) and .gltf files.
+
+    Only the POSITION attribute and the index accessor are needed; the
+    meshes' vertices and triangles are rebuilt from the embedded buffers
+    (data URIs and the GLB BIN chunk). glTF files that reference external
+    .bin files can't work without their siblings and raise an error.
+    """
+
+    import base64
+    import json
+
+    if data[:4] == b'glTF':
+        if len(data) < 20:
+            raise ValueError('GLB file too short')
+        json_text = None
+        bin_data = None
+        offset = 12
+        while offset + 8 <= len(data):
+            length, chunk_type = struct.unpack_from('<I4s', data, offset)
+            offset += 8
+            chunk = data[offset:offset + length]
+            offset += length
+            if chunk_type == b'JSON':
+                json_text = _decode(chunk.rstrip(b'\x00 \t\r\n'))
+            elif chunk_type == b'BIN\x00':
+                bin_data = chunk
+        if json_text is None:
+            raise ValueError('GLB file has no JSON chunk')
+    else:
+        json_text = _decode(data)
+        bin_data = None
+
+    try:
+        doc = json.loads(json_text)
+    except ValueError:
+        raise ValueError('glTF JSON is damaged')
+
+    buffers = []
+    for buffer in doc.get('buffers', []):
+        uri = buffer.get('uri', '')
+        if uri.startswith('data:'):
+            header, _, payload = uri.partition(',')
+            if 'base64' in header:
+                buffers.append(base64.b64decode(payload))
+            else:
+                buffers.append(base64.b64decode(payload + '==='))
+        elif bin_data is not None:
+            buffers.append(bin_data[:buffer.get('byteLength',
+                                                len(bin_data))])
+        else:
+            buffers.append(None)
+
+    def accessor(index):
+        acc = doc['accessors'][index]
+        view = doc['bufferViews'][acc['bufferView']]
+        buffer = buffers[view.get('buffer', 0)] if buffers else None
+        if buffer is None:
+            raise ValueError('glTF file uses external buffers')
+        start = acc.get('byteOffset', 0) + view.get('byteOffset', 0)
+        return buffer, start, acc
+
+    vertices = []
+    triangles = []
+    for mesh in doc.get('meshes', []):
+        for prim in mesh.get('primitives', []):
+            attributes = prim.get('attributes', {})
+            if 'POSITION' not in attributes:
+                continue
+            base = len(vertices) // 3
+            buffer, start, acc = accessor(attributes['POSITION'])
+            count = acc.get('count', 0)
+            comp_type = acc.get('componentType', 5126)
+            if comp_type == 5126:
+                values = struct.unpack_from(
+                    '<%df' % (count * 3), buffer, start)
+            elif comp_type == 5123:
+                values = struct.unpack_from(
+                    '<%dH' % (count * 3), buffer, start)
+            elif comp_type == 5125:
+                values = struct.unpack_from(
+                    '<%dI' % (count * 3), buffer, start)
+            else:
+                raise ValueError('Unsupported glTF position type')
+            vertices.extend(float(v) for v in values)
+            index_ref = prim.get('indices')
+            if index_ref is None:
+                for i in range(1, count - 1):
+                    triangles.append((base, base + i, base + i + 1))
+            else:
+                ibuffer, istart, iacc = accessor(index_ref)
+                icount = iacc.get('count', 0)
+                fmt = {5120: 'b', 5121: 'B', 5122: 'h', 5123: 'H',
+                       5125: 'I'}.get(iacc.get('componentType', 5123))
+                if not fmt:
+                    raise ValueError('Unsupported glTF index type')
+                indices = struct.unpack_from(
+                    '<%d%s' % (icount, fmt), ibuffer, istart)
+                for i in range(0, icount - 2, 3):
+                    triangles.append((indices[i] + base,
+                                      indices[i + 1] + base,
+                                      indices[i + 2] + base))
+    if not triangles:
+        raise ValueError('glTF file has no triangles')
+    return {'vertices': vertices, 'triangles': triangles}
+
+
+# -- USDZ ----------------------------------------------------------------------
+
+def _parse_usdz(data):
+    """Parses USDZ archives (a zip containing USDA/USDC payloads).
+
+    USDA (ASCII) meshes are parsed natively: ``point3f[] points`` arrays
+    plus ``faceVertexIndices``/``faceVertexCounts``. USDC (binary crate)
+    payloads fall back to the optional pyassimp package.
+    """
+
+    import io as _io
+    import re
+    import zipfile
+
+    try:
+        archive = zipfile.ZipFile(_io.BytesIO(data))
+    except Exception:
+        raise ValueError('USDZ file is not a valid zip archive')
+    names = archive.namelist()
+    usda = next((n for n in names if n.endswith('.usda')), None)
+    if usda is not None:
+        return _parse_usda(_decode(archive.read(usda)))
+
+    # No ASCII payload: try pyassimp for USDC (or FBX-in-zip) content
+    try:
+        import pyassimp
+        import os
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.usdz',
+                                         delete=False) as tmp:
+            tmp.write(data)
+            path = tmp.name
+        try:
+            with pyassimp.load(path) as scene:
+                vertices = []
+                triangles = []
+                for mesh in scene.meshes:
+                    base = len(vertices) // 3
+                    for v in mesh.vertices:
+                        vertices.extend(
+                            (float(v[0]), float(v[1]), float(v[2])))
+                    for face in mesh.faces:
+                        for i in range(1, len(face) - 1):
+                            triangles.append(
+                                (face[0] + base, face[i] + base,
+                                 face[i + 1] + base))
+                if triangles:
+                    return {'vertices': vertices, 'triangles': triangles}
+        finally:
+            os.unlink(path)
+    except ImportError:
+        pass
+    raise ValueError('USDZ archive has no .usda payload and pyassimp '
+                     'is not installed')
+
+
+def _parse_usda(text):
+    """Parses the mesh subset of a USDA (ASCII USD) file."""
+
+    import re
+
+    vertices = []
+    triangles = []
+
+    for match in re.finditer(
+            r'point3f\[\]\s+points\s*=\s*\[(.*?)\]', text, re.S):
+        for point in re.finditer(
+                r'\(\s*([-\d.eE+]+)\s*,\s*([-\d.eE+]+)\s*,'
+                r'\s*([-\d.eE+]+)\s*\)', match.group(1)):
+            vertices.extend((float(point.group(1)), float(point.group(2)),
+                             float(point.group(3))))
+
+    counts = []
+    count_match = re.search(
+        r'int\[\]\s+faceVertexCounts\s*=\s*\[(.*?)\]', text, re.S)
+    if count_match:
+        counts = [int(v) for v in
+                  re.findall(r'-?\d+', count_match.group(1))]
+
+    for match in re.finditer(
+            r'int\[\]\s+faceVertexIndices\s*=\s*\[(.*?)\]', text,
+            re.S):
+        indices = [int(v) for v in re.findall(r'-?\d+', match.group(1))]
+        face_counts = counts if counts else [3] * (len(indices) // 3)
+        pos = 0
+        for count in face_counts:
+            if count >= 3 and pos + count <= len(indices):
+                for i in range(1, count - 1):
+                    triangles.append((indices[pos], indices[pos + i],
+                                      indices[pos + i + 1]))
+            pos += count
+
+    if not triangles:
+        raise ValueError('USDZ archive has no mesh data')
+    return {'vertices': vertices, 'triangles': triangles}
 
 
 # -- FBX (optional via pyassimp) ----------------------------------------------
