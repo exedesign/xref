@@ -16,6 +16,7 @@
 from functools import partial
 import logging
 import math
+import random
 from queue import Queue
 
 from PyQt6 import QtCore, QtWidgets, QtGui
@@ -60,6 +61,10 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
         # Pen/draw mode
         self.draw_mode = False
         self._draw_item = None
+        self._draw_start = None
+        # The active tool in pen mode: 'freehand', 'rect', 'ellipse',
+        # 'line' (shapes need Shift for squares/circles)
+        self.draw_shape = 'freehand'
         # Pen settings for new strokes (colour as RGB tuple, width in
         # screen pixels)
         self.pen_color = XRefDrawItem.DEFAULT_COLOR
@@ -347,13 +352,15 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
                 items, width=self.pen_width / self.pen_scale()))
 
     def draw_start(self, scene_pos):
-        """Starts a new freehand stroke at the given scene position."""
+        """Starts a new stroke or shape at the given scene position."""
 
+        shape = self.draw_shape if self.draw_shape != 'freehand' else None
         self._draw_item = XRefDrawItem(
             stroke_color=self.pen_color,
             # Store the width in item units so the brush keeps its size
             # on screen regardless of the current zoom level
-            stroke_width=self.pen_width / self.pen_scale())
+            stroke_width=self.pen_width / self.pen_scale(),
+            shape=shape)
         # The live stroke must not react to the mouse (it would otherwise
         # be picked up by itemAt/hover handling while drawing)
         self._draw_item.setFlags(
@@ -361,12 +368,25 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
         self._draw_item.setAcceptHoverEvents(False)
         self.addItem(self._draw_item)
         self._draw_item.bring_to_front()
-        self._draw_item.add_point(scene_pos)
+        self._draw_start = QtCore.QPointF(scene_pos)
+        if shape:
+            self._draw_item.set_shape_points(scene_pos, scene_pos)
+        else:
+            self._draw_item.add_point(scene_pos)
 
-    def draw_move(self, scene_pos):
-        """Continues the current stroke to the given scene position."""
+    def draw_move(self, scene_pos, constrain=False):
+        """Continues the current stroke or shape to the given position.
 
-        if self._draw_item:
+        ``constrain`` makes squares/circles out of rectangles/ellipses and
+        straight angles out of lines (Shift key).
+        """
+
+        if not self._draw_item:
+            return
+        if self._draw_item._shape != XRefDrawItem.SHAPE_FREEHAND:
+            self._draw_item._constrain_active = constrain
+            self._draw_item.set_shape_points(self._draw_start, scene_pos)
+        else:
             self._draw_item.add_point(scene_pos)
 
     def finish_draw_stroke(self):
@@ -574,6 +594,31 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
         positions = [QtCore.QPointF(*pos) + diff for pos in positions]
 
         self.undo_stack.push(commands.ArrangeItems(self, items, positions))
+
+    def arrange_randomly(self):
+        """Scatters the selection randomly around its current center."""
+
+        self.cancel_active_modes()
+        items = self.selectedItems(user_only=True)
+        if len(items) < 2:
+            return
+        gap = self.settings.valueOrDefault('Items/arrange_gap')
+        center = self.get_selection_center()
+        rects = [self.itemsBoundingRect(items=[item]) for item in items]
+        max_width = max(rect.width() for rect in rects)
+        max_height = max(rect.height() for rect in rects)
+        # Scatter within a square that comfortably fits all items
+        span = (max_width + gap) * math.sqrt(len(items))
+        positions = []
+        for item in items:
+            positions.append(
+                QtCore.QPointF(
+                    round(center.x() - max_width / 2
+                          + random.uniform(0, max(1, span - max_width))),
+                    round(center.y() - max_height / 2
+                          + random.uniform(0, max(1, span - max_height)))))
+        self.undo_stack.push(
+            commands.MoveItemsTo(items, positions))
 
     def arrange_square(self):
         self.cancel_active_modes()
@@ -1084,7 +1129,10 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
             event.accept()
             return
         if self.active_mode == self.DRAW_MODE:
-            self.draw_move(event.scenePos())
+            self.draw_move(
+                event.scenePos(),
+                constrain=bool(
+                    event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
             event.accept()
             return
         if self.active_mode == self.GROUP_MOVE_MODE:

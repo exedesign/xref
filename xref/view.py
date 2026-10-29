@@ -374,6 +374,8 @@ class XRefGraphicsView(MainControlsMixin,
             self.parent.showFullScreen()
         else:
             self.parent.showNormal()
+        # The window manager may not apply full screen on offscreen/minimal
+        # platforms; the action state still follows the user's intent
         self.schedule_recentre(centre)
 
     def view_centre_scene(self):
@@ -583,11 +585,24 @@ class XRefGraphicsView(MainControlsMixin,
     def update_window_edge_cursor(self, pos, widget=None):
         """Shows a resize/move cursor while the pointer is on a window edge.
 
-        ``widget`` is the surface the pointer is over; it defaults to the
-        view's viewport but the welcome overlay passes itself.
+        Only the empty canvas is used for the window edges; over items, the
+        items' own cursors (selection handles, video controls, link ports)
+        take precedence.
         """
 
         widget = widget if widget is not None else self.viewport()
+        scene = getattr(self, 'scene', None)
+        if scene is not None and scene.mouseGrabberItem() is not None:
+            return
+        try:
+            item_under = self.itemAt(pos)
+        except (TypeError, RuntimeError):
+            item_under = None
+        if item_under is not None:
+            if getattr(widget, '_window_edge_cursor_active', False):
+                widget._window_edge_cursor_active = False
+                widget.unsetCursor()
+            return
         hit = self.window_edge_hit(pos)
         if hit is None:
             if getattr(widget, '_window_edge_cursor_active', False):
@@ -690,6 +705,23 @@ class XRefGraphicsView(MainControlsMixin,
 
     def on_action_arrange_square(self):
         self.scene.arrange_square()
+
+    def on_action_arrange_randomly(self):
+        self.scene.arrange_randomly()
+
+    def on_action_duplicate(self):
+        """Duplicates the selection with a small offset (Ctrl+D)."""
+
+        items = self.scene.selectedItems(user_only=True)
+        if not items:
+            return
+        copies = [item.create_copy() for item in items]
+        offset = 20 / max(self.get_scale(), 0.01)
+        self.undo_stack.push(
+            commands.InsertItems(self.scene, copies,
+                                 QtCore.QPointF(offset, offset)))
+        for copy in copies:
+            copy.setSelected(True)
 
     def on_action_change_opacity(self):
         images = list(filter(
@@ -1146,6 +1178,40 @@ class XRefGraphicsView(MainControlsMixin,
             qaction.blockSignals(True)
             qaction.setChecked(self.scene.draw_mode)
             qaction.blockSignals(False)
+
+    def set_pen_tool(self, shape):
+        """Selects the pen mode tool (freehand or one of the shapes)."""
+
+        self.scene.draw_shape = shape
+        # Pen mode itself is toggled separately; picking a tool must not
+        # enable it on its own (the actions start checked at startup)
+        for tool, action_id in (
+                ('freehand', 'pen_tool_freehand'),
+                ('rect', 'pen_tool_rect'),
+                ('ellipse', 'pen_tool_ellipse'),
+                ('line', 'pen_tool_line')):
+            action = actions.actions.get(action_id)
+            if action is None or action.qaction is None:
+                continue
+            action.qaction.blockSignals(True)
+            action.qaction.setChecked(tool == shape)
+            action.qaction.blockSignals(False)
+
+    def on_action_pen_tool_freehand(self, checked):
+        if checked:
+            self.set_pen_tool('freehand')
+
+    def on_action_pen_tool_rect(self, checked):
+        if checked:
+            self.set_pen_tool('rect')
+
+    def on_action_pen_tool_ellipse(self, checked):
+        if checked:
+            self.set_pen_tool('ellipse')
+
+    def on_action_pen_tool_line(self, checked):
+        if checked:
+            self.set_pen_tool('line')
 
     def on_action_pen_color(self):
         """Picks the colour for the pen (applies to selected strokes)."""
@@ -1671,10 +1737,12 @@ class XRefGraphicsView(MainControlsMixin,
 
     def on_cursor_changed(self, cursor):
         if self.active_mode is None and not self.scene.draw_mode:
+            self._scene_cursor_active = True
             self.viewport().setCursor(cursor)
 
     def on_cursor_cleared(self):
         if self.active_mode is None and not self.scene.draw_mode:
+            self._scene_cursor_active = False
             self.viewport().unsetCursor()
 
     def recalc_scene_rect(self):
@@ -1902,7 +1970,8 @@ class XRefGraphicsView(MainControlsMixin,
             event.accept()
             return
 
-        if self.active_mode is None:
+        if self.active_mode is None and not getattr(
+                self, '_scene_cursor_active', False):
             self.update_window_edge_cursor(event.pos())
 
         if self.mouseMoveEventMainControls(event):
@@ -2022,7 +2091,8 @@ class XRefGraphicsView(MainControlsMixin,
             event.accept()
             return
         if (event.key() == Qt.Key.Key_Escape
-                and self.parent.isFullScreen()):
+                and (self.parent.isFullScreen()
+                     or actions.actions['fullscreen'].qaction.isChecked())):
             self.toggle_fullscreen()
             event.accept()
             return

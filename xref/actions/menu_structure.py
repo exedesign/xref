@@ -45,7 +45,8 @@ menu_structure = [
             MENU_SEPARATOR,
             'cut',
             'copy',
-            'paste',
+            'paste',            'duplicate',
+
             'delete',
             MENU_SEPARATOR,
             'raise_to_top',
@@ -103,7 +104,8 @@ menu_structure = [
             'arrange_optimal',
             'arrange_horizontal',
             'arrange_vertical',
-            'arrange_square',
+            'arrange_square',            'arrange_randomly',
+
         ],
     },
     {
@@ -126,6 +128,10 @@ menu_structure = [
         'menu': '&Tools',
         'items': [
             'toggle_draw',
+            'pen_tool_freehand',
+            'pen_tool_rect',
+            'pen_tool_ellipse',
+            'pen_tool_line',
             'pen_color',
             'pen_width_thin',
             'pen_width_normal',

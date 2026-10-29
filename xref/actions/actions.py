@@ -180,6 +180,31 @@ actions = ActionList([
         callback='on_action_toggle_draw',
     ),
     Action(
+        id='pen_tool_freehand',
+        text='Pen: &Freehand',
+        checkable=True,
+        checked=True,
+        callback='on_action_pen_tool_freehand',
+    ),
+    Action(
+        id='pen_tool_rect',
+        text='Pen: &Rectangle',
+        checkable=True,
+        callback='on_action_pen_tool_rect',
+    ),
+    Action(
+        id='pen_tool_ellipse',
+        text='Pen: &Ellipse',
+        checkable=True,
+        callback='on_action_pen_tool_ellipse',
+    ),
+    Action(
+        id='pen_tool_line',
+        text='Pen: &Line',
+        checkable=True,
+        callback='on_action_pen_tool_line',
+    ),
+    Action(
         id='pen_color',
         text='Pen &Colour...',
         callback='on_action_pen_color',
@@ -350,6 +375,20 @@ actions = ActionList([
         id='arrange_vertical',
         text='&Vertical (by filename)',
         callback='on_action_arrange_vertical',
+        group='active_when_selection',
+    ),
+    Action(
+        id='arrange_randomly',
+        text='Arrange &Randomly',
+        shortcuts=['Ctrl+Alt+R'],
+        callback='on_action_arrange_randomly',
+        group='active_when_selection',
+    ),
+    Action(
+        id='duplicate',
+        text='&Duplicate',
+        shortcuts=['Ctrl+D'],
+        callback='on_action_duplicate',
         group='active_when_selection',
     ),
     Action(

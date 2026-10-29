@@ -51,6 +51,11 @@ Added
   in Settings -> Miscellaneous -> Window Edge Move Area). Ctrl+Alt+drag and
   Ctrl+M still move the window. The title bar and the always-on-top state
   are remembered between sessions.
+* Pen mode gained shape tools: rectangles and ellipses (hold Shift to
+  get a perfect square or circle) and straight lines, with the same
+  colour, width and style as freehand drawing (Tools menu).
+* New commands: Duplicate (Ctrl+D) copies the selection with a small
+  offset, and Arrange -> Randomly scatters the selected items.
 * The background colour of the working area can be changed in
   Settings -> Miscellaneous -> Canvas Background Color (black by default).
 * The window has minimize, full screen and close buttons in the top right

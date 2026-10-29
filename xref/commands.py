@@ -88,6 +88,23 @@ class MoveItemsBy(QtGui.QUndoCommand):
             item.moveBy(-self.delta.x(), -self.delta.y())
 
 
+class MoveItemsTo(QtGui.QUndoCommand):
+    """Moves each item to an absolute position (used by arrange actions)."""
+
+    def __init__(self, items, positions):
+        super().__init__('Move items')
+        self.pairs = list(zip(items, positions))
+        self.old_positions = {id(item): item.pos() for item in items}
+
+    def redo(self):
+        for item, position in self.pairs:
+            item.setPos(position)
+
+    def undo(self):
+        for item, position in self.pairs:
+            item.setPos(self.old_positions[id(item)])
+
+
 class ScaleItemsBy(QtGui.QUndoCommand):
     """Scale items by a given factor around the given anchor."""
 

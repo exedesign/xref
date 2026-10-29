@@ -78,6 +78,12 @@ TRANSLATIONS = {
         'Click to lock this page': 'Bu sayfayı kilitlemek için tıklayın',
         'Click to browse the pages again':
             'Sayfalar arasında gezinmek için tekrar tıklayın',
+        'Pen: &Freehand': 'Kalem: &Serbest',
+        'Pen: &Rectangle': 'Kalem: &Dikdörtgen',
+        'Pen: &Ellipse': 'Kalem: &Elips',
+        'Pen: &Line': 'Kalem: &Çizgi',
+        'Arrange &Randomly': '&Rastgele Diz',
+        '&Duplicate': 'Ç&oğalt',
         '&Draw (Pen Mode)': '&Çiz (Kalem Modu)',
         'Pen &Colour...': 'Kalem &Rengi...',
         'Brush &Thin': 'Fırça &İnce',

@@ -355,6 +355,26 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
         else:
             return self.crop
 
+    def create_copy(self):
+        item = XRefPdfItem(
+            filename=self.filename,
+            size=(self._width, self._height),
+            pages=self._pages,
+            preview=self._frame,
+            page=self._current_page)
+        if self.pdf_bytes is not None:
+            item.pdf_bytes = self.pdf_bytes
+        else:
+            item.pdf_path = self.pdf_path
+        item.setPos(self.pos())
+        item.setZValue(self.zValue())
+        item.setScale(self.scale())
+        item.setRotation(self.rotation())
+        item.setOpacity(self.opacity())
+        if self.flip() == -1:
+            item.do_flip()
+        return item
+
     def get_extra_save_data(self):
         return {'filename': self.filename,
                 'opacity': self.opacity(),
@@ -880,18 +900,28 @@ class XRefTextItem(XRefItemMixin, QtWidgets.QGraphicsTextItem):
 
 @register_item
 class XRefDrawItem(XRefItemMixin, QtWidgets.QGraphicsPathItem):
-    """Freehand notes / sketches added by the user (pen mode).
+    """Notes / sketches added by the user (pen mode).
 
-    Recorded points are turned into a smoothed path (quadratic
-    interpolation through the midpoints), so strokes look like a brush
-    instead of a jagged polyline.
+    Freehand strokes are recorded as points and turned into a smoothed
+    path (quadratic interpolation through the midpoints), so strokes look
+    like a brush instead of a jagged polyline.
+
+    The item also covers the shape tools: rectangles (squares with
+    ``constrain``), ellipses (circles with ``constrain``) and straight
+    lines. Shapes are stored as their two corner points plus a ``shape``
+    marker, so they can be re-edited later.
     """
 
     TYPE = 'draw'
     DEFAULT_COLOR = (255, 138, 61)
     DEFAULT_WIDTH = 10  # screen pixels
+    SHAPE_FREEHAND = 'freehand'
+    SHAPE_RECT = 'rect'
+    SHAPE_ELLIPSE = 'ellipse'
+    SHAPE_LINE = 'line'
 
-    def __init__(self, stroke_color=None, stroke_width=None, **kwargs):
+    def __init__(self, stroke_color=None, stroke_width=None, shape=None,
+                 **kwargs):
         super().__init__()
         self.save_id = None
         self.is_image = False
@@ -900,6 +930,7 @@ class XRefDrawItem(XRefItemMixin, QtWidgets.QGraphicsPathItem):
         self._stroke_color = _to_qcolor(stroke_color, self.DEFAULT_COLOR)
         self._stroke_width = float(stroke_width or self.DEFAULT_WIDTH)
         self._points = []
+        self._shape = shape or self.SHAPE_FREEHAND
         self._path = QtGui.QPainterPath()
         self.setPath(self._path)
         logger.debug(f'Initialized {self}')
@@ -907,6 +938,8 @@ class XRefDrawItem(XRefItemMixin, QtWidgets.QGraphicsPathItem):
     def __str__(self):
         if getattr(self, '_path', None) is None:
             return 'Drawing'
+        if self._shape != self.SHAPE_FREEHAND:
+            return f'Drawing ({self._shape})'
         return f'Drawing ({len(self._points)} points)'
 
     # -- API -----------------------------------------------------------------
@@ -943,11 +976,24 @@ class XRefDrawItem(XRefItemMixin, QtWidgets.QGraphicsPathItem):
         self._rebuild_path()
 
     def _rebuild_path(self):
-        """Turns the recorded points into a smooth, brush-like path."""
+        """Turns the recorded points into the item's path."""
 
         pts = self._points
         path = QtGui.QPainterPath()
-        if pts:
+        if len(pts) == 2 and self._shape != self.SHAPE_FREEHAND:
+            start, end = pts
+            if self._shape == self.SHAPE_LINE:
+                path.moveTo(start)
+                path.lineTo(end)
+            else:
+                if self._shape_constrained():
+                    end = self._constrained_end(start, end)
+                rect = QtCore.QRectF(start, end).normalized()
+                if self._shape == self.SHAPE_RECT:
+                    path.addRect(rect)
+                else:
+                    path.addEllipse(rect)
+        elif pts and self._shape == self.SHAPE_FREEHAND:
             path.moveTo(pts[0])
             if len(pts) == 2:
                 path.lineTo(pts[1])
@@ -959,6 +1005,31 @@ class XRefDrawItem(XRefItemMixin, QtWidgets.QGraphicsPathItem):
         self._path = path
         self.setPath(path)
         self.update()
+
+    _constrain_active = False
+
+    def _shape_constrained(self):
+        """Whether the current drag should make a square/circle."""
+
+        return self._constrain_active
+
+    @staticmethod
+    def _constrained_end(start, end):
+        """The corner adjusted so width and height are equal."""
+
+        dx = end.x() - start.x()
+        dy = end.y() - start.y()
+        size = max(abs(dx), abs(dy))
+        return QtCore.QPointF(
+            start.x() + size * (1 if dx >= 0 else -1),
+            start.y() + size * (1 if dy >= 0 else -1))
+
+    def set_shape_points(self, start, end):
+        """Sets the two corner points of a shape (live while dragging)."""
+
+        self.prepareGeometryChange()
+        self._points = [QtCore.QPointF(start), QtCore.QPointF(end)]
+        self._rebuild_path()
 
     def path(self):
         return self._path
@@ -985,8 +1056,29 @@ class XRefDrawItem(XRefItemMixin, QtWidgets.QGraphicsPathItem):
             return super().shape()
         return self._hit_test_path()
 
+    def create_copy(self):
+        item = XRefDrawItem(
+            stroke_color=(self._stroke_color.red(),
+                          self._stroke_color.green(),
+                          self._stroke_color.blue()),
+            stroke_width=self._stroke_width,
+            shape=self._shape)
+        if self._shape != self.SHAPE_FREEHAND and len(self._points) == 2:
+            item.set_shape_points(self._points[0], self._points[1])
+        else:
+            for point in self._points:
+                item.add_point(point)
+        item.setPos(self.pos())
+        item.setZValue(self.zValue())
+        item.setScale(self.scale())
+        item.setRotation(self.rotation())
+        item.setOpacity(self.opacity())
+        if self.flip() == -1:
+            item.do_flip()
+        return item
+
     def get_extra_save_data(self):
-        return {
+        data = {
             'opacity': self.opacity(),
             'points': [[p.x(), p.y()] for p in self._points],
             'stroke_color': [self._stroke_color.red(),
@@ -994,14 +1086,25 @@ class XRefDrawItem(XRefItemMixin, QtWidgets.QGraphicsPathItem):
                              self._stroke_color.blue()],
             'stroke_width': self._stroke_width,
         }
+        if self._shape != self.SHAPE_FREEHAND:
+            data['shape'] = self._shape
+        return data
 
     @classmethod
     def create_from_data(cls, **kwargs):
         data = kwargs.get('data', {}) or {}
         item = cls(stroke_color=data.get('stroke_color'),
-                   stroke_width=data.get('stroke_width'))
-        for x, y in data.get('points', []):
-            item.add_point(QtCore.QPointF(x, y))
+                   stroke_width=data.get('stroke_width'),
+                   shape=data.get('shape'))
+        if data.get('shape') in (cls.SHAPE_RECT, cls.SHAPE_ELLIPSE,
+                                 cls.SHAPE_LINE):
+            points = data.get('points', [])
+            if len(points) == 2:
+                item.set_shape_points(
+                    QtCore.QPointF(*points[0]), QtCore.QPointF(*points[1]))
+        else:
+            for x, y in data.get('points', []):
+                item.add_point(QtCore.QPointF(x, y))
         item.setOpacity(data.get('opacity', 1))
         return item
 
