@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Build the BeeRef appimage. Run from the git root directory.
+# Build the XRef appimage. Run from the git root directory.
 # On github actions:
 #   ./tools/build_appimage --version=${{ github.ref_name }}\
 #      --jsonfile=tools/linux_libs.json
@@ -20,12 +20,12 @@ from urllib.request import urlretrieve
 
 
 parser = argparse.ArgumentParser(
-    description=('Create an appimage for BeeRef. '
+    description=('Create an appimage for XRef. '
                  'Run from the git root directory.'))
 parser.add_argument(
     '-v', '--version',
     required=True,
-    help='BeeRef version number/tag for output file')
+    help='XRef version number/tag for output file')
 parser.add_argument(
     '-j', '--jsonfile',
     required=True,
@@ -157,8 +157,8 @@ export APPIMAGE_COMMAND=$(command -v -- "$ARGV0")
 export SSL_CERT_FILE="${APPDIR}/opt/_internal/certs.pem"
 """]
 
-runbee = f'"$APPDIR/opt/python{PYVER}/bin/python{PYVER}" -I -m beeref "$@"'
-logfile = '/tmp/BeeRefAppimageLog.txt'
+runbee = f'"$APPDIR/opt/python{PYVER}/bin/python{PYVER}" -I -m xref "$@"'
+logfile = '/tmp/XRefAppimageLog.txt'
 
 content.extend([
     f'export LD_LIBRARY_PATH="{ld_paths}"',
@@ -166,7 +166,7 @@ content.extend([
     'if [ $? -ne 0 ]; then',
     # Workaround for:
     # https://bugreports.qt.io/browse/QTBUG-114635
-    # See also https://github.com/rbreu/beeref/issues/102
+    # See also https://github.com/rbreu/xref/issues/102
     f'  if grep -q wl_proxy_marshal_flags {logfile}; then',
     '    echo "Wayland version error; trying again without Wayland"',
     f'    QT_QPA_PLATFORM=xcb {runbee}',
@@ -182,7 +182,7 @@ logger.info('Copying appdata.xml...')
 for f in glob.glob('squashfs-root/usr/share/metainfo/*'):
     os.remove(f)
 
-filename = 'org.beeref.BeeRef.appdata.xml'
+filename = 'org.xref.XRef.appdata.xml'
 shutil.copyfile(filename, f'squashfs-root/usr/share/metainfo/{filename}')
 
 logger.info('Writing .desktop...')
@@ -192,31 +192,31 @@ for f in glob.glob('squashfs-root/*.desktop'):
     os.remove(f)
 
 content = f"""[Desktop Entry]
-Name=BeeRef
+Name=XRef
 GenericName=Image Viewer
 Comment=A simple reference image viewer
 Terminal=false
-Exec=BeeRef-{BEEVERSION}
+Exec=XRef-{BEEVERSION}
 Type=Application
 Icon=logo
 
-MimeType=application/x-beeref;
+MimeType=application/x-xref;
 Categories=Qt;KDE;Graphics;
-X-KDE-NativeMimeType=application/x-beeref
+X-KDE-NativeMimeType=application/x-xref
 X-KDE-ExtraNativeMimeTypes=
 
 X-AppImage-Version={BEEVERSION}
 """
 
-filename = 'squashfs-root/usr/share/applications/org.beeref.BeeRef.desktop'
+filename = 'squashfs-root/usr/share/applications/org.xref.XRef.desktop'
 with open(filename, 'w') as f:
     f.write(content)
-os.symlink('usr/share/applications/org.beeref.BeeRef.desktop',
-           'squashfs-root/BeeRef.desktop')
+os.symlink('usr/share/applications/org.xref.XRef.desktop',
+           'squashfs-root/XRef.desktop')
 
 logger.info('Copying logos...')
-shutil.copyfile('./beeref/assets/logo.svg', 'squashfs-root/logo.svg')
-shutil.copyfile('./beeref/assets/logo.png', 'squashfs-root/.DirIcon')
+shutil.copyfile('./xref/assets/logo.svg', 'squashfs-root/logo.svg')
+shutil.copyfile('./xref/assets/logo.png', 'squashfs-root/.DirIcon')
 
 
 url = ('https://github.com/AppImage/AppImageKit/releases/download/'
@@ -225,4 +225,4 @@ url = ('https://github.com/AppImage/AppImageKit/releases/download/'
 download_file(url, filename='appimagetool.appimage')
 run_command('./appimagetool.appimage',
             'squashfs-root',
-            f'BeeRef-{BEEVERSION}.appimage')
+            f'XRef-{BEEVERSION}.appimage')

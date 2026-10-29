@@ -3,13 +3,13 @@ requires = ["setuptools>=61.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["beeref*"]
+include = ["xref*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.html", "*.png"]
 
 [project]
-name = "BeeRef"
+name = "XRef"
 version = "0.3.4-dev"
 description = "A simple reference image and video viewer"
 readme = "README.rst"
@@ -29,11 +29,11 @@ dependencies = [
 ]
 
 [project.gui-scripts]
-beeref = "beeref.__main__:main"
+xref = "xref.__main__:main"
 
 [project.urls]
-Homepage = "https://beeref.org/"
-Repository = "https://github.com/rbreu/beeref"
+Homepage = "https://github.com/exedesign/xref/"
+Repository = "https://github.com/exedesign/xref"
 # Documentation =
-Issues = "https://github.com/rbreu/beeref/issues"
-Changelog = "https://github.com/rbreu/beeref/blob/main/CHANGELOG.rst"
+Issues = "https://github.com/exedesign/xref/issues"
+Changelog = "https://github.com/exedesign/xref/blob/main/CHANGELOG.rst"

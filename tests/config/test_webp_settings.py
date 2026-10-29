@@ -1,7 +1,7 @@
 import pytest
 
-from beeref.config import BeeSettings
-from beeref.widgets.settings import ImageStorageFormatWidget
+from xref.config import XRefSettings
+from xref.widgets.settings import ImageStorageFormatWidget
 
 
 def test_webp_in_options():

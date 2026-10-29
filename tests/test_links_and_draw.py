@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 from PyQt6 import QtCore, QtGui
 
-from beeref import commands
-from beeref.items import BeeDrawItem, BeePixmapItem, item_registry
+from xref import commands
+from xref.items import XRefDrawItem, XRefPixmapItem, item_registry
 
 
 @pytest.fixture
@@ -18,8 +18,8 @@ def imgfilename3x3():
 @pytest.fixture
 def two_items(view, imgfilename3x3):
     img = QtGui.QImage(imgfilename3x3)
-    item1 = BeePixmapItem(img)
-    item2 = BeePixmapItem(img)
+    item1 = XRefPixmapItem(img)
+    item2 = XRefPixmapItem(img)
     view.scene.addItem(item1)
     view.scene.addItem(item2)
     item1.setPos(0, 0)
@@ -32,11 +32,11 @@ def two_items(view, imgfilename3x3):
 # -- Draw item ----------------------------------------------------------
 
 def test_drawitem_in_registry():
-    assert item_registry['draw'] == BeeDrawItem
+    assert item_registry['draw'] == XRefDrawItem
 
 
 def test_drawitem_add_point(view):
-    item = BeeDrawItem()
+    item = XRefDrawItem()
     view.scene.addItem(item)
     item.add_point(QtCore.QPointF(10, 10))
     item.add_point(QtCore.QPointF(20, 20))
@@ -46,24 +46,24 @@ def test_drawitem_add_point(view):
 
 
 def test_drawitem_save_load_roundtrip(view):
-    item = BeeDrawItem()
+    item = XRefDrawItem()
     item.add_point(QtCore.QPointF(10, 10))
     item.add_point(QtCore.QPointF(20, 20))
     data = item.get_extra_save_data()
     assert len(data['points']) == 2
-    copy = BeeDrawItem.create_from_data(data=data)
+    copy = XRefDrawItem.create_from_data(data=data)
     assert copy.path().elementCount() == 2
     assert copy.boundingRect() == item.boundingRect()
 
 
 def test_drawitem_persistence(view, imgfilename3x3, tmp_path):
     img = QtGui.QImage(imgfilename3x3)
-    item = BeeDrawItem()
+    item = XRefDrawItem()
     item.add_point(QtCore.QPointF(10, 10))
     item.add_point(QtCore.QPointF(20, 20))
     view.scene.addItem(item)
     path = str(tmp_path / 'test.bee')
-    from beeref.fileio import SQLiteIO
+    from xref.fileio import SQLiteIO
     io = SQLiteIO(path, view.scene, create_new=True)
     io.write()
     io._close_connection()
@@ -94,9 +94,9 @@ def test_add_remove_link(view, two_items):
 
 def test_linked_children_transitive(view, imgfilename3x3):
     img = QtGui.QImage(imgfilename3x3)
-    a = BeePixmapItem(img)
-    b = BeePixmapItem(img)
-    c = BeePixmapItem(img)
+    a = XRefPixmapItem(img)
+    b = XRefPixmapItem(img)
+    c = XRefPixmapItem(img)
     for i, item in enumerate((a, b, c)):
         view.scene.addItem(item)
         item.setPos(i * 50, 0)
@@ -112,7 +112,7 @@ def test_links_persistence(view, two_items, tmp_path):
     item1, item2 = two_items
     view.scene.add_link(item1, item2)
     path = str(tmp_path / 'test.bee')
-    from beeref.fileio import SQLiteIO
+    from xref.fileio import SQLiteIO
     io = SQLiteIO(path, view.scene, create_new=True)
     io.write()
     io._close_connection()

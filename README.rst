@@ -1,103 +1,78 @@
-BeeRef — A Simple Reference Image Viewer
-========================================
+XRef — A Reference Board for Images, Videos and Ideas
+======================================================
 
-.. raw:: html
+XRef lets you quickly arrange your reference images and videos and view them
+while you create. Its minimal interface is designed not to get in the way of
+your creative process.
 
-   <img align="left" width="100" height="100" src="https://raw.githubusercontent.com/rbreu/beeref/main/beeref/assets/logo.png">
-
-`BeeRef <https://beeref.org>`_ lets you quickly arrange your reference images and view them while you create. Its minimal interface is designed not to get in the way of your creative process.
-
-|python-version| |github-ci-flake8| |github-ci-pytest| |codecov| |downloads-total| |downloads-latest|
-
-.. image:: https://github.com/rbreu/beeref/blob/main/images/screenshot.png
-
-.. |python-version| image:: https://github.com/rbreu/beeref/blob/main/images/python_version_badge.svg
-   :target: https://www.python.org/
-
-.. |github-ci-flake8| image:: https://github.com/rbreu/beeref/actions/workflows/flake8.yml/badge.svg
-   :target: https://github.com/rbreu/beeref/actions/workflows/flake8.yml
-
-.. |github-ci-pytest| image:: https://github.com/rbreu/beeref/actions/workflows/pytest.yml/badge.svg
-   :target: https://github.com/rbreu/beeref/actions/workflows/pytest.yml
-
-.. |codecov| image:: https://codecov.io/gh/rbreu/beeref/branch/main/graph/badge.svg?token=QA8HR1VVAL
-   :target: https://codecov.io/gh/rbreu/beeref
-
-.. |downloads-total| image:: https://img.shields.io/github/downloads/rbreu/beeref/total.svg
-   :target: https://github.com/rbreu/beeref/releases
-
-.. |downloads-latest| image:: https://img.shields.io/github/downloads/rbreu/beeref/latest/total.svg
-   :target: https://github.com/rbreu/beeref/releases
-
-
-Installation
-------------
-
-Stable Release
-~~~~~~~~~~~~~~
-
-Get the file for your operating system (Windows, Linux, macOS) from the `latest release <https://github.com/rbreu/beeref/releases>`_. The different Linux versions are built on different versions of Ubuntu. The should work on other distros as well, but you might have to try which one works.
-
-**Linux users** need to give the file executable rights before running it. Optional: If you want to have BeeRef appear in the app menu, save the desktop file from the `release section <https://github.com/rbreu/beeref/releases>`_ in ``~/.local/share/applications``, save the `logo <https://raw.githubusercontent.com/rbreu/beeref/main/beeref/assets/logo.png>`_, and adjust the path names in the desktop file to match the location of your BeeRef installation.
-
-**MacOS X users**, look at `detailed instructions <https://beeref.org/macosx-run.html>`_ if you have problems running BeeRef.
-
-Follow further releases via the `atom feed <https://github.com/rbreu/beeref/releases.atom>`_.
-
-
-Development Version
-~~~~~~~~~~~~~~~~~~~
-
-To get the current development version, you need to have a working Python 3 environment. Run the following command to install the development version::
-
-  pip install git+https://github.com/rbreu/beeref.git
-
-Then run ``beeref`` or ``beeref filename.bee``.
-
+XRef is a fork of `BeeRef <https://github.com/rbreu/beeref>`_ by Rebecca Breu,
+extended with video playback, node-style links between references, a pen for
+notes and sketches, shared boards and a Turkish interface.
 
 Features
 --------
 
-* Move, scale, rotate, crop and flip images
-* Mass-scale images to the same width, height or size
-* Mass-arrange images vertically, horizontally or for optimal usage of space
-* Add text notes
-* Enable always-on-top-mode and disable the title bar to let the BeeRef window unobtrusively float above your art program:
+* Reference images (PNG, JPG, WebP, GIF, ...) and videos (MP4, MOV, WebM, ...)
+* Infinite canvas with pan, zoom, rotate, flip, crop, arrange and normalize
+* Video playback with a DaVinci-Resolve-like hover scrub (red playhead), a
+  remembered preview frame, play/pause, mute and volume controls
+* Node-editor style links between items: drag from the port on the item's edge,
+  or use Tools -> Link Selected Items; linked children can be moved together
+  with Ctrl+drag
+* Pen mode for freehand notes and sketches (Alt double-tap): brush colour and
+  four brush sizes, smooth strokes
+* Text notes, opacity, grayscale and colour gamut view
+* Drag & drop of images, videos, boards, text, HTML, text files and links;
+  dragging a selection out of the window copies it to other applications
+* Shared boards over the local network, paired with a session code (no IP
+  addresses): authenticated, encrypted, with host approval, and the session
+  continues on another peer if the host goes away
+* Turkish and English interface (Settings -> Miscellaneous -> Language)
+* Autosave with a configurable interval
 
-.. image:: https://github.com/rbreu/beeref/blob/main/images/screenshot.png
+Installation
+------------
 
+XRef runs on Windows, Linux and macOS and needs Python 3.9 - 3.12 with PyQt6.
 
-Regarding the bee file format
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. code-block:: console
 
-All images are embedded into the bee file as PNG, JPG or WebP (depending
-on the "Image Storage Format" setting). Videos are referenced by their
-source path instead of being copied, and are only embedded when the
-original file is no longer available. The bee file format is a sqlite
-database inside which the images (and any embedded videos) are stored in
-an sqlar table—meaning they can be extracted with the
-`sqlite command line program <https://www.sqlite.org/cli.html>`_::
+   pip install git+https://github.com/exedesign/xref.git
+   xref
 
-  sqlite3 myfile.bee -Axv
+To run it from a checkout:
 
-Options for exporting from inside BeeRef are planned, but the above always works independently of BeeRef.
+.. code-block:: console
 
+   pip install -r requirements/dev.txt
+   python -m xref
+
+Board files
+-----------
+
+Boards are saved as ``.xref`` files, a SQLite database. Boards saved by older
+versions (and by BeeRef) use ``.bee`` and open as usual; use *File -> Save As*
+to store them in the new format.
+
+Images are embedded as PNG, JPG or WebP (depending on the "Image Storage
+Format" setting). Videos are referenced by their source path instead of being
+copied, and are only embedded when the original file is no longer available.
+Images (and any embedded videos) live in an ``sqlar`` table, so they can be
+extracted with the `sqlite command line program
+<https://www.sqlite.org/cli.html>`_:
+
+.. code-block:: console
+
+   sqlite3 myfile.xref -Axv
 
 Troubleshooting
 ---------------
 
-You can access the log output via *Help -> Show Debug Log*. In case BeeRef doesn't start at all, you can find the log file here:
+You can access the log output via *Help -> Show Debug Log*.
 
-Windows:
+License
+-------
 
-  C:\Documents and Settings\USERNAME\Application Data\BeeRef\BeeRef.log
-
-Linux and MacOS:
-
-  /home/USERNAME/.config/BeeRef/BeeRef.log
-
-
-Notes for developers
---------------------
-
-BeeRef is written in Python and PyQt6. For more info, see `CONTRIBUTING.rst <https://github.com/rbreu/beeref/blob/main/CONTRIBUTING.rst>`_.
+XRef is free software, licensed under the GNU General Public License v3. It is
+based on BeeRef, Copyright (C) 2021-2024 Rebecca Breu, and keeps the original
+copyright and license notices.

@@ -1,7 +1,7 @@
-BeeRef — Notes For Developers
+XRef — Notes For Developers
 =============================
 
-BeeRef is written in Python and PyQt6.
+XRef is written in Python and PyQt6.
 
 
 Developing
@@ -10,17 +10,17 @@ Developing
 Optional step: Use pyenv to create a virtual environment::
 
   pyenv install -v 3.11
-  pyenv virtualenv 3.11 beeref
+  pyenv virtualenv 3.11 xref
 
 Once the vitrual environment is set up, you can enter it with::
 
-  pyenv activate beeref
+  pyenv activate xref
 
 
-Clone the repository and install beeref and its dependencies::
+Clone the repository and install xref and its dependencies::
 
-  git clone https://github.com/rbreu/beeref.git
-  cd beeref
+  git clone https://github.com/exedesign/xref.git
+  cd xref
   pip install -e .
 
 Install additional development requirements::
@@ -41,7 +41,7 @@ Beeref files are sqlite databases, so they can be inspected with any sqlite brow
 
 For debugging options, run::
 
-  beeref --help
+  xref --help
 
 
 Building the app
@@ -49,7 +49,7 @@ Building the app
 
 To build the app, run::
 
-  pyinstaller BeeRef.spec
+  pyinstaller XRef.spec
 
 You will find the generated executable in the folder ``dist``.
 
@@ -61,7 +61,7 @@ The Python version badge in the README is generated with pybadges::
 
   python -m pybadges --left-text=Python --right-text="3.9 | 3.10 | 3.11" > images/python_version_badge.svg
 
-The `website <https://rbreu.github.io/beeref/>`_ is hosted via Github pages from the gh-pages branch. You can run it locally if you have Ruby and bundler installed::
+The `website <https://rbreu.github.io/xref/>`_ is hosted via Github pages from the gh-pages branch. You can run it locally if you have Ruby and bundler installed::
 
   bundle install
   bundle exec jekyll serve --baseurl ""

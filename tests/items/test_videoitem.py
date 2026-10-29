@@ -4,7 +4,7 @@ import pytest
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from beeref.items import BeeVideoItem, item_registry
+from xref.items import XRefVideoItem, item_registry
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def videofilename():
 
 @pytest.fixture
 def videoitem(qapp, videofilename):
-    item = BeeVideoItem(video_path=videofilename,
+    item = XRefVideoItem(video_path=videofilename,
                         filename=videofilename,
                         size=(32, 32),
                         duration=2000)
@@ -23,7 +23,7 @@ def videoitem(qapp, videofilename):
 
 
 def test_in_item_registry():
-    assert item_registry['video'] == BeeVideoItem
+    assert item_registry['video'] == XRefVideoItem
 
 
 def test_init(videoitem):
@@ -37,8 +37,8 @@ def test_init(videoitem):
 
 
 def test_default_size_when_not_provided(qapp):
-    item = BeeVideoItem()
-    assert item.size == BeeVideoItem.DEFAULT_SIZE
+    item = XRefVideoItem()
+    assert item.size == XRefVideoItem.DEFAULT_SIZE
 
 
 def test_bounding_rect(videoitem):
@@ -67,7 +67,7 @@ def test_get_filename_for_export(videoitem):
 
 
 def test_video_to_bytes(videofilename):
-    item = BeeVideoItem(video_path=videofilename)
+    item = XRefVideoItem(video_path=videofilename)
     data = item.video_to_bytes()
     assert data is not None
     assert len(data) > 12
@@ -81,8 +81,8 @@ def test_video_from_bytes(videoitem):
 
 
 def test_create_from_data():
-    item = BeeVideoItem.create_from_data(
-        item=BeeVideoItem(),
+    item = XRefVideoItem.create_from_data(
+        item=XRefVideoItem(),
         data={
             'filename': 'test.mp4',
             'size': [64, 48],
@@ -96,9 +96,9 @@ def test_create_from_data():
 
 
 def test_create_from_data_preserves_video_bytes():
-    base = BeeVideoItem()
+    base = XRefVideoItem()
     base.video_bytes = b'fakevideo'
-    item = BeeVideoItem.create_from_data(
+    item = XRefVideoItem.create_from_data(
         item=base,
         data={'size': [10, 20], 'duration': 100})
     assert item.video_bytes == b'fakevideo'
@@ -157,8 +157,8 @@ def test_hover_scrub_does_not_change_pinned_position(videoitem):
 
 
 def test_saved_position_is_restored():
-    item = BeeVideoItem.create_from_data(
-        item=BeeVideoItem(), data={'duration': 5000, 'position': 1234})
+    item = XRefVideoItem.create_from_data(
+        item=XRefVideoItem(), data={'duration': 5000, 'position': 1234})
     assert item._current_position == 1234
     assert item.get_extra_save_data()['position'] == 1234
 
@@ -169,7 +169,7 @@ def test_embedded_bytes_only_without_source(videoitem):
     videoitem.video_path = 'does/not/exist.mp4'
     assert videoitem.embedded_video_bytes() == b'data'
 def test_controls_layout_play_mute_volume(qapp):
-    videoitem = BeeVideoItem(size=(400, 300))
+    videoitem = XRefVideoItem(size=(400, 300))
     play = videoitem._play_button_rect()
     mute = videoitem._mute_button_rect()
     volume = videoitem._volume_slider_rect()
@@ -187,13 +187,13 @@ def test_controls_have_no_seek_bar(qapp):
     """The position is controlled by hovering/clicking the video, so the
     control bar has no seek bar."""
 
-    item = BeeVideoItem(size=(400, 300))
+    item = XRefVideoItem(size=(400, 300))
     assert not hasattr(item, '_seek_bar_rect')
     assert not hasattr(item, '_seek_from_bar')
 
 
 def test_controls_layout_hides_volume_on_small_items(qapp):
-    item = BeeVideoItem(size=(90, 80))
+    item = XRefVideoItem(size=(90, 80))
     assert not item._mute_button_rect().isEmpty()
     assert item._volume_slider_rect().isEmpty()
 
@@ -249,19 +249,19 @@ def test_volume_and_mute_are_saved(videoitem):
     data = videoitem.get_extra_save_data()
     assert data['volume'] == pytest.approx(0.3)
     assert data['muted'] is True
-    restored = BeeVideoItem.create_from_data(item=BeeVideoItem(), data=data)
+    restored = XRefVideoItem.create_from_data(item=XRefVideoItem(), data=data)
     assert restored.volume == pytest.approx(0.3)
     assert restored.is_muted is True
 
 
 def test_create_from_data_defaults_for_older_files():
-    item = BeeVideoItem.create_from_data(
-        item=BeeVideoItem(), data={'duration': 1000})
+    item = XRefVideoItem.create_from_data(
+        item=XRefVideoItem(), data={'duration': 1000})
     assert item.volume == 1.0
     assert item.is_muted is False
 
 def test_time_label_sits_right_of_the_controls(qapp):
-    item = BeeVideoItem(size=(400, 300))
+    item = XRefVideoItem(size=(400, 300))
     time = item._time_rect()
     volume = item._volume_slider_rect()
     assert not time.isEmpty()
@@ -272,5 +272,5 @@ def test_time_label_sits_right_of_the_controls(qapp):
 
 
 def test_time_label_hidden_on_narrow_items(qapp):
-    item = BeeVideoItem(size=(160, 100))
+    item = XRefVideoItem(size=(160, 100))
     assert item._time_rect().isEmpty()

@@ -1,5 +1,15 @@
-0.3.4-dev (unreleased)
+0.4.0-dev (unreleased)
 ======================
+
+Renamed to XRef
+---------------
+
+* The project is now called **XRef**: window title, About dialog, package
+  name (``xref``), settings file, log file and documentation.
+* Boards are saved as ``.xref``. Boards saved by older versions (and by
+  BeeRef) use ``.bee`` and still open; use *File -> Save As* to convert.
+* Existing settings are migrated automatically on first start.
+* The licence (GPL-3.0) and the original BeeRef copyright notices are kept.
 
 Added
 -----
@@ -55,7 +65,7 @@ Added
   configurable interval, so long sessions are not lost. Autosave only
   writes boards that already have a file and never interrupts with
   dialogs.
-* Added shared board sessions (Collaborate menu), so several BeeRef
+* Added shared board sessions (Collaborate menu), so several XRef
   installations on the same network can work on one board together -
   the idea is similar to PowerToys' "Mouse Without Borders", but sharing
   the canvas instead of the pointer. One user starts a session
@@ -142,7 +152,7 @@ Changed
 Added
 -----
 
-* Moving the window from within BeeRef now changes to a diffent cursor from
+* Moving the window from within XRef now changes to a diffent cursor from
   the default arrow cursor.
 * Added a color sampler which can copy colors from images to the
   clipboard in hex format (Images -> Sample Color)
@@ -185,7 +195,7 @@ Added
 * The opacity of images can be changed (Images -> Change Opacity).
 * Images can be set to display as grayscale (Images -> Grayscale).
 * The scene can now also be exported as SVG
-* Keyboard shortcuts can now be edited from within BeeRef (Settings ->
+* Keyboard shortcuts can now be edited from within XRef (Settings ->
   Keyboard Shortcuts). The KeyboardSettings.ini file will now only
   store values which are changed from the default, since it's no longer
   needed as a reference.
@@ -228,7 +238,7 @@ Added
   large zoom factor are exempt to make sure that icons, pixel sprites
   etc can be viewed correctly.
 * A scene can now be exported to a single image (File -> Export Scene...)
-* Alternative way to move the BeeRef window without the title bar:
+* Alternative way to move the XRef window without the title bar:
   View -> Move Window (or press "M")
 
 
@@ -247,7 +257,7 @@ Fixed
 
 * Fixed a bug where the binary data of deleted images would still hang
   around in the bee file.
-* The shortcut to move the BeeRef window (Ctrl + Alt + Drag)
+* The shortcut to move the XRef window (Ctrl + Alt + Drag)
   now works on an empty scene
 * Crash when copying an item from a bee file, opening a new scene and
   pasting the image into it.
@@ -278,7 +288,7 @@ Fixed
 0.2.0 - 2021-09-06
 ==================
 
-Note that bee files from version 0.2.0 won't open in BeeRef 0.1.x.
+Note that bee files from version 0.2.0 won't open in XRef 0.1.x.
 
 Added
 -----
@@ -309,7 +319,7 @@ Changed
 -------
 
 * Flipping an image now happens on mouse press instead of mouse release
-* About dialog points to new website beeref.org
+* About dialog points to new website xref.org
 * Menus and dialogs now have a dark style to match the optics of the canvas
 
 Fixed

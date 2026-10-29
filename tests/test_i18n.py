@@ -7,11 +7,11 @@ import os
 import pytest
 from PyQt6 import QtWidgets
 
-from beeref import i18n
-from beeref.i18n import tr
+from xref import i18n
+from xref.i18n import tr
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PACKAGE = os.path.join(ROOT, 'beeref')
+PACKAGE = os.path.join(ROOT, 'xref')
 
 
 def iter_python_files():
@@ -61,10 +61,10 @@ def missing_translations():
     missing = sorted(s for s in literal_tr_strings() if s not in table)
 
     # Texts that reach tr() indirectly must be translated as well
-    from beeref.actions.actions import actions
-    from beeref.actions.menu_structure import menu_structure
-    from beeref import widgets
-    from beeref.config.controls import KeyboardSettings
+    from xref.actions.actions import actions
+    from xref.actions.menu_structure import menu_structure
+    from xref import widgets
+    from xref.config.controls import KeyboardSettings
 
     indirect = set()
     for action in actions.values():
@@ -89,7 +89,7 @@ def missing_translations():
         indirect.add(action.text)
     for action in KeyboardSettings.MOUSEWHEEL_ACTIONS.values():
         indirect.add(action.text)
-    from beeref.config.controls import MouseConfigBase
+    from xref.config.controls import MouseConfigBase
     for name in MouseConfigBase.MODIFIER_MAP:
         indirect.add(name)
     for name in MouseConfigBase.BUTTON_MAP:
@@ -172,7 +172,7 @@ def test_available_languages_lists_both(qapp):
 
 def test_language_change_updates_actions_and_window_title(
         view, qapp, monkeypatch):
-    from beeref.actions.actions import actions
+    from xref.actions.actions import actions
 
     overlay = getattr(view, 'welcome_overlay', None)
     assert overlay is not None
@@ -212,10 +212,10 @@ def test_menu_titles_are_translated(view, qapp):
 
 
 def test_settings_dialog_has_a_language_selector(view, qapp):
-    from beeref.widgets.settings import SettingsDialog
+    from xref.widgets.settings import SettingsDialog
     dialog = SettingsDialog(view)
     try:
-        from beeref.widgets.settings import LanguageWidget
+        from xref.widgets.settings import LanguageWidget
         selectors = dialog.findChildren(LanguageWidget)
         assert len(selectors) == 1
         selector = selectors[0]
@@ -227,14 +227,14 @@ def test_settings_dialog_has_a_language_selector(view, qapp):
 
 
 def test_language_setting_is_remembered(qapp):
-    from beeref.config import BeeSettings
+    from xref.config import XRefSettings
 
-    settings = BeeSettings()
+    settings = XRefSettings()
     old = settings.value('General/language')
     try:
         i18n.set_language('tr')
         settings.setValue('General/language', 'tr')
-        assert BeeSettings().valueOrDefault('General/language') == 'tr'
+        assert XRefSettings().valueOrDefault('General/language') == 'tr'
     finally:
         if old is None:
             settings.remove('General/language')
@@ -244,14 +244,14 @@ def test_language_setting_is_remembered(qapp):
 
 
 def test_startup_applies_the_stored_language(qapp):
-    from beeref.config import BeeSettings
+    from xref.config import XRefSettings
 
-    settings = BeeSettings()
+    settings = XRefSettings()
     old = settings.value('General/language')
     try:
         settings.setValue('General/language', 'tr')
         i18n.set_language('en')
-        BeeSettings().on_startup()
+        XRefSettings().on_startup()
         assert i18n.current_language() == 'tr'
     finally:
         if old is None:
@@ -265,8 +265,8 @@ def test_help_document_is_available_in_both_languages():
     from importlib.resources import files as rsc_files
 
     for name in ('controls.html', 'controls_tr.html'):
-        path = rsc_files('beeref.documentation').joinpath(name)
+        path = rsc_files('xref.documentation').joinpath(name)
         assert path.is_file(), name
-    turkish = rsc_files('beeref.documentation').joinpath(
+    turkish = rsc_files('xref.documentation').joinpath(
         'controls_tr.html').read_text(encoding='utf-8')
     assert 'Kaydır' in turkish

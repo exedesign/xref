@@ -5,9 +5,9 @@ import time
 import pytest
 from PyQt6 import QtCore, QtGui
 
-from beeref import collab
-from beeref.items import BeeTextItem
-from beeref.scene import BeeGraphicsScene
+from xref import collab
+from xref.items import XRefTextItem
+from xref.scene import XRefGraphicsScene
 
 CODE = 'TESTCODE42'
 
@@ -35,7 +35,7 @@ def pair(view, qapp):
     """A host session on scene A and a joined session on scene B."""
 
     scene_a = view.scene
-    scene_b = BeeGraphicsScene(view.undo_stack)
+    scene_b = XRefGraphicsScene(view.undo_stack)
     host = collab.CollabSession(scene_a, name='host')
     client = collab.CollabSession(scene_b, name='client')
     code = host.host(port=0, code=CODE)
@@ -129,7 +129,7 @@ def test_host_returns_a_code(view, qapp):
 
 def test_join_with_wrong_code_is_refused(view, qapp):
     host = collab.CollabSession(view.scene, name='host')
-    client = collab.CollabSession(BeeGraphicsScene(view.undo_stack),
+    client = collab.CollabSession(XRefGraphicsScene(view.undo_stack),
                                   name='client')
     try:
         assert host.host(port=0, code=CODE)
@@ -146,7 +146,7 @@ def test_join_with_wrong_code_is_refused(view, qapp):
 
 def test_join_is_refused_when_the_host_declines(view, qapp):
     host = collab.CollabSession(view.scene, name='host')
-    client = collab.CollabSession(BeeGraphicsScene(view.undo_stack),
+    client = collab.CollabSession(XRefGraphicsScene(view.undo_stack),
                                   name='client')
     try:
         host.approval_callback = lambda name, address: False
@@ -167,7 +167,7 @@ def test_approval_callback_receives_the_peer_name(view, qapp):
         return True
 
     host = collab.CollabSession(view.scene, name='host')
-    client = collab.CollabSession(BeeGraphicsScene(view.undo_stack),
+    client = collab.CollabSession(XRefGraphicsScene(view.undo_stack),
                                   name='alice')
     try:
         host.approval_callback = approve
@@ -208,7 +208,7 @@ def test_poll_timeouts_are_not_reported_as_errors(pair, qapp):
 
 def test_item_added_on_host_appears_on_client(pair, qapp):
     host, client, scene_a, scene_b = pair
-    item = BeeTextItem('hello from host')
+    item = XRefTextItem('hello from host')
     scene_a.addItem(item)
     item.setPos(120, 80)
     host.sync()
@@ -220,7 +220,7 @@ def test_item_added_on_host_appears_on_client(pair, qapp):
 
 def test_item_added_on_client_appears_on_host(pair, qapp):
     host, client, scene_a, scene_b = pair
-    item = BeeTextItem('from client')
+    item = XRefTextItem('from client')
     scene_b.addItem(item)
     client.sync()
     assert pump(qapp, lambda: len(items_of(scene_a)) == 1)
@@ -229,7 +229,7 @@ def test_item_added_on_client_appears_on_host(pair, qapp):
 
 def test_moving_an_item_syncs(pair, qapp):
     host, client, scene_a, scene_b = pair
-    item = BeeTextItem('move me')
+    item = XRefTextItem('move me')
     scene_a.addItem(item)
     item.setPos(10, 10)
     host.sync()
@@ -242,7 +242,7 @@ def test_moving_an_item_syncs(pair, qapp):
 
 def test_removing_an_item_syncs(pair, qapp):
     host, client, scene_a, scene_b = pair
-    item = BeeTextItem('bye')
+    item = XRefTextItem('bye')
     scene_a.addItem(item)
     host.sync()
     assert pump(qapp, lambda: len(items_of(scene_b)) == 1)
@@ -254,8 +254,8 @@ def test_removing_an_item_syncs(pair, qapp):
 
 def test_links_sync(pair, qapp):
     host, client, scene_a, scene_b = pair
-    a = BeeTextItem('parent')
-    b = BeeTextItem('child')
+    a = XRefTextItem('parent')
+    b = XRefTextItem('child')
     for item in (a, b):
         scene_a.addItem(item)
     a.setPos(0, 0)
@@ -270,7 +270,7 @@ def test_links_sync(pair, qapp):
 
 def test_text_edit_syncs(pair, qapp):
     host, client, scene_a, scene_b = pair
-    item = BeeTextItem('first')
+    item = XRefTextItem('first')
     scene_a.addItem(item)
     host.sync()
     assert pump(qapp, lambda: len(items_of(scene_b)) == 1)
@@ -284,11 +284,11 @@ def test_late_peer_receives_the_existing_board(view, qapp):
     scene_a = view.scene
     host = collab.CollabSession(scene_a, name='host')
     try:
-        item = BeeTextItem('already here')
+        item = XRefTextItem('already here')
         scene_a.addItem(item)
         item.setPos(50, 60)
         assert host.host(port=0, code=CODE)
-        scene_b = BeeGraphicsScene(view.undo_stack)
+        scene_b = XRefGraphicsScene(view.undo_stack)
         client = collab.CollabSession(scene_b, name='late')
         try:
             assert client.join(CODE, timeout_ms=5000)
@@ -309,12 +309,12 @@ def test_join_returns_only_after_the_board_is_there(view, qapp):
     host = collab.CollabSession(scene_a, name='host')
     try:
         code = host.host(port=0, code=CODE)
-        item = BeeTextItem('made after hosting')
+        item = XRefTextItem('made after hosting')
         scene_a.addItem(item)
         item.setPos(10, 10)
         host.sync()
 
-        scene_b = BeeGraphicsScene(view.undo_stack)
+        scene_b = XRefGraphicsScene(view.undo_stack)
         client = collab.CollabSession(scene_b, name='client')
         try:
             assert client.join(code, timeout_ms=5000)
@@ -332,7 +332,7 @@ def test_client_does_not_sync_before_the_board_arrives(view, qapp):
     host = collab.CollabSession(scene_a, name='host')
     try:
         code = host.host(port=0, code=CODE)
-        client = collab.CollabSession(BeeGraphicsScene(view.undo_stack),
+        client = collab.CollabSession(XRefGraphicsScene(view.undo_stack),
                                       name='client')
         try:
             assert client.join(code, timeout_ms=5000)
@@ -348,7 +348,7 @@ def test_leaving_stops_updates(pair, qapp):
     host, client, scene_a, scene_b = pair
     client.leave()
     assert not client.is_active()
-    item = BeeTextItem('after leave')
+    item = XRefTextItem('after leave')
     scene_a.addItem(item)
     host.sync()
     time.sleep(0.2)
@@ -357,11 +357,11 @@ def test_leaving_stops_updates(pair, qapp):
 
 
 def test_pixmap_is_transferred(pair, qapp):
-    from beeref.items import BeePixmapItem
+    from xref.items import XRefPixmapItem
     host, client, scene_a, scene_b = pair
     image = QtGui.QImage(64, 48, QtGui.QImage.Format.Format_ARGB32)
     image.fill(QtGui.QColor(10, 200, 120))
-    item = BeePixmapItem(image, 'pic.png')
+    item = XRefPixmapItem(image, 'pic.png')
     scene_a.addItem(item)
     host.sync()
     assert pump(qapp, lambda: len(items_of(scene_b, 'pixmap')) == 1)
@@ -382,7 +382,7 @@ def test_board_data_is_never_sent_in_plaintext(pair, qapp, monkeypatch):
         return original(sock, message)
 
     monkeypatch.setattr(collab.CollabSession, '_write', staticmethod(spy))
-    item = BeeTextItem('TOPSECRET-PAYLOAD')
+    item = XRefTextItem('TOPSECRET-PAYLOAD')
     scene_a.addItem(item)
     host.sync()
     assert pump(qapp, lambda: len(items_of(scene_b)) == 1)
@@ -405,7 +405,7 @@ def test_handshake_does_not_contain_the_code(view, qapp, monkeypatch):
 
     monkeypatch.setattr(collab.CollabSession, '_write', staticmethod(spy))
     host = collab.CollabSession(view.scene, name='host')
-    client = collab.CollabSession(BeeGraphicsScene(view.undo_stack),
+    client = collab.CollabSession(XRefGraphicsScene(view.undo_stack),
                                   name='client')
     try:
         host.host(port=0, code='SECRETCODE')

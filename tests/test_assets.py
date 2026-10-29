@@ -1,12 +1,12 @@
 from PyQt6 import QtGui
 
-from beeref.assets import BeeAssets
+from xref.assets import XRefAssets
 
 
 def test_singleton(view):
-    assert BeeAssets() is BeeAssets()
-    assert BeeAssets().logo is BeeAssets().logo
+    assert XRefAssets() is XRefAssets()
+    assert XRefAssets().logo is XRefAssets().logo
 
 
 def test_has_logo(view):
-    assert isinstance(BeeAssets().logo, QtGui.QIcon)
+    assert isinstance(XRefAssets().logo, QtGui.QIcon)

@@ -23,10 +23,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install .
           # We want to test against installed package instead of source files
-          pip install . --target beeref_inst
-          rm -r beeref
-          mv beeref_inst/beeref beeref
-          rm -r beeref_inst
+          pip install . --target xref_inst
+          rm -r xref
+          mv xref_inst/xref xref
+          rm -r xref_inst
           pip install -r requirements/test.txt
           pip install pyQt6==${{ matrix.pyqt-version }} pyQt6-Qt6==${{ matrix.pyqt-version }} --upgrade
       - name: Run Unittests with pytest

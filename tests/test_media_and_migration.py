@@ -5,10 +5,10 @@ import os
 import pytest
 from PyQt6 import QtCore, QtGui
 
-from beeref import collab
-from beeref.config import BeeSettings
-from beeref.items import BeePixmapItem, BeeTextItem, BeeVideoItem
-from beeref.scene import BeeGraphicsScene
+from xref import collab
+from xref.config import XRefSettings
+from xref.items import XRefPixmapItem, XRefTextItem, XRefVideoItem
+from xref.scene import XRefGraphicsScene
 
 CODE = 'MEDIACODE42'
 
@@ -55,7 +55,7 @@ def videofilename():
 @pytest.fixture
 def pair(view, qapp):
     scene_a = view.scene
-    scene_b = BeeGraphicsScene(view.undo_stack)
+    scene_b = XRefGraphicsScene(view.undo_stack)
     host = collab.CollabSession(scene_a, name='host')
     client = collab.CollabSession(scene_b, name='client')
     assert host.host(port=0, code=CODE)
@@ -74,7 +74,7 @@ def test_image_keeps_original_resolution(pair, qapp, tmp_path):
     host, client, scene_a, scene_b = pair
     path = hq_image_file(tmp_path)
     image = QtGui.QImage(path)
-    item = BeePixmapItem(image, path)
+    item = XRefPixmapItem(image, path)
     scene_a.addItem(item)
     host.sync()
     assert pump(qapp, lambda: len(items_of(scene_b, 'pixmap')) == 1)
@@ -98,7 +98,7 @@ def test_large_media_is_streamed_in_chunks(pair, qapp, tmp_path,
     path = hq_image_file(tmp_path)
     assert os.path.getsize(path) > 4096
 
-    item = BeePixmapItem(QtGui.QImage(path), path)
+    item = XRefPixmapItem(QtGui.QImage(path), path)
     scene_a.addItem(item)
     host.sync()
     assert pump(qapp, lambda: len(items_of(scene_b, 'pixmap')) == 1)
@@ -111,7 +111,7 @@ def test_large_media_is_streamed_in_chunks(pair, qapp, tmp_path,
 
 def test_video_is_transferred_and_playable(pair, qapp, videofilename):
     host, client, scene_a, scene_b = pair
-    item = BeeVideoItem(video_path=videofilename, size=(32, 32),
+    item = XRefVideoItem(video_path=videofilename, size=(32, 32),
                         duration=2000)
     scene_a.addItem(item)
     host.sync()
@@ -143,7 +143,7 @@ def test_same_media_is_not_transferred_twice(pair, qapp, tmp_path,
 
     monkeypatch.setattr(collab.CollabSession, '_send_asset_to', spy)
     for x in (0, 400):
-        item = BeePixmapItem(QtGui.QImage(path), path)
+        item = XRefPixmapItem(QtGui.QImage(path), path)
         scene_a.addItem(item)
         item.setPos(x, 0)
     host.sync()
@@ -156,7 +156,7 @@ def test_same_media_is_not_transferred_twice(pair, qapp, tmp_path,
 
 def test_crop_and_grayscale_are_shared_as_flags(pair, qapp, imgfilename3x3):
     host, client, scene_a, scene_b = pair
-    item = BeePixmapItem(QtGui.QImage(imgfilename3x3), imgfilename3x3)
+    item = XRefPixmapItem(QtGui.QImage(imgfilename3x3), imgfilename3x3)
     scene_a.addItem(item)
     item.grayscale = True
     item.crop = QtCore.QRectF(1, 1, 2, 2)
@@ -174,10 +174,10 @@ def test_late_peer_receives_original_media(view, qapp, tmp_path):
     path = hq_image_file(tmp_path)
     host = collab.CollabSession(view.scene, name='host')
     try:
-        item = BeePixmapItem(QtGui.QImage(path), path)
+        item = XRefPixmapItem(QtGui.QImage(path), path)
         view.scene.addItem(item)
         assert host.host(port=0, code=CODE)
-        scene_b = BeeGraphicsScene(view.undo_stack)
+        scene_b = XRefGraphicsScene(view.undo_stack)
         client = collab.CollabSession(scene_b, name='late')
         try:
             assert client.join(CODE, timeout_ms=6000)
@@ -206,8 +206,8 @@ def test_graceful_host_stop_ends_the_session(pair, qapp):
 
 def test_successor_takes_over_when_host_disappears(view, qapp):
     scene_a = view.scene
-    scene_b = BeeGraphicsScene(view.undo_stack)
-    scene_c = BeeGraphicsScene(view.undo_stack)
+    scene_b = XRefGraphicsScene(view.undo_stack)
+    scene_c = XRefGraphicsScene(view.undo_stack)
     host = collab.CollabSession(scene_a, name='host')
     first = collab.CollabSession(scene_b, name='first')
     second = collab.CollabSession(scene_c, name='second')
@@ -217,7 +217,7 @@ def test_successor_takes_over_when_host_disappears(view, qapp):
         assert second.join(CODE, timeout_ms=5000), second.last_error
         assert pump(qapp, lambda: host.peer_count() == 2)
 
-        item = BeeTextItem('board content')
+        item = XRefTextItem('board content')
         scene_a.addItem(item)
         host.sync()
         assert pump(qapp, lambda: len(items_of(scene_b, 'text')) == 1)
@@ -242,12 +242,12 @@ def test_migrated_host_can_still_sync(pair, qapp):
     host.leave(announce=False)
     assert pump(qapp, lambda: client.is_host, timeout=8)
 
-    item = BeeTextItem('after migration')
+    item = XRefTextItem('after migration')
     scene_b.addItem(item)
     client.sync()
 
     # A newcomer can join the new host and gets the board
-    scene_c = BeeGraphicsScene(None)
+    scene_c = XRefGraphicsScene(None)
     newcomer = collab.CollabSession(scene_c, name='newcomer')
     try:
         assert newcomer.join(CODE, timeout_ms=5000), newcomer.last_error
@@ -260,7 +260,7 @@ def test_migrated_host_can_still_sync(pair, qapp):
 
 @pytest.fixture
 def autosave_settings(qapp):
-    settings = BeeSettings()
+    settings = XRefSettings()
     old = {key: settings.value(key) for key in
            ('Save/autosave', 'Save/autosave_interval')}
     yield settings
@@ -281,8 +281,8 @@ def test_autosave_writes_the_file(view, tmp_path, autosave_settings,
                                  monkeypatch):
     autosave_settings.setValue('Save/autosave', True)
     view.filename = str(tmp_path / 'auto.bee')
-    view.undo_stack.push(__import__('beeref.commands', fromlist=['x'])
-                         .InsertItems(view.scene, [BeeTextItem('dirty')]))
+    view.undo_stack.push(__import__('xref.commands', fromlist=['x'])
+                         .InsertItems(view.scene, [XRefTextItem('dirty')]))
     saved = []
     monkeypatch.setattr(view, 'do_save',
                         lambda *a, **kw: saved.append((a, kw)))

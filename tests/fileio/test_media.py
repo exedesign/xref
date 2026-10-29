@@ -2,7 +2,7 @@ import pytest
 
 from PyQt6 import QtCore, QtGui
 
-from beeref.fileio.media import (
+from xref.fileio.media import (
     VIDEO_EXTENSIONS,
     guess_mime_type,
     is_video,

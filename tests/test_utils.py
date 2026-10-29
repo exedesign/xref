@@ -2,8 +2,8 @@ import pytest
 
 from PyQt6 import QtCore, QtGui
 
-from beeref.actions.actions import Action
-from beeref import utils
+from xref.actions.actions import Action
+from xref import utils
 
 
 def test_create_palette_from_dict_sets_qt_group():

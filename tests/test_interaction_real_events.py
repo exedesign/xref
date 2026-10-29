@@ -10,7 +10,7 @@ from unittest.mock import patch
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
-from beeref.items import BeeDrawItem, BeePixmapItem, BeeVideoItem
+from xref.items import XRefDrawItem, XRefPixmapItem, XRefVideoItem
 
 
 Mod = Qt.KeyboardModifier
@@ -29,7 +29,7 @@ def shown_view(view, qapp):
 def add_image(view, x, y, size=100):
     img = QtGui.QImage(size, size, QtGui.QImage.Format.Format_ARGB32)
     img.fill(QtGui.QColor(200, 50, 50))
-    item = BeePixmapItem(img)
+    item = XRefPixmapItem(img)
     view.scene.addItem(item)
     item.setPos(x, y)
     return item
@@ -261,9 +261,9 @@ def wait_until(qapp, condition, timeout=3000):
 
 
 def make_video(view, videofilename, qapp):
-    from beeref.items import _probe_video
+    from xref.items import _probe_video
     probe = _probe_video(videofilename)
-    item = BeeVideoItem(video_path=videofilename, size=(200, 200),
+    item = XRefVideoItem(video_path=videofilename, size=(200, 200),
                         duration=probe['duration'],
                         preview=probe['preview'])
     view.scene.addItem(item)
@@ -272,7 +272,7 @@ def make_video(view, videofilename, qapp):
 
 
 def test_video_probe_gives_first_frame(videofilename, qapp):
-    from beeref.items import _probe_video
+    from xref.items import _probe_video
     probe = _probe_video(videofilename)
     assert probe['duration'] == 2000
     assert probe['size'] == (32, 32)
@@ -281,7 +281,7 @@ def test_video_probe_gives_first_frame(videofilename, qapp):
 
 def test_video_is_saved_by_reference(shown_view, videofilename, qapp,
                                      tmp_path):
-    from beeref.fileio import SQLiteIO
+    from xref.fileio import SQLiteIO
     view = shown_view
     item, _ = make_video(view, videofilename, qapp)
     item.set_position(1200)
@@ -350,7 +350,7 @@ def test_video_click_remembers_frame(shown_view, videofilename, qapp):
 
 def test_video_remembered_position_survives_reload(shown_view, videofilename,
                                                    qapp, tmp_path):
-    from beeref.fileio import SQLiteIO
+    from xref.fileio import SQLiteIO
     view = shown_view
     item, _ = make_video(view, videofilename, qapp)
     item.set_position(1700)
@@ -549,7 +549,7 @@ def test_pen_width_actions_change_selected_stroke(shown_view):
 
 
 def test_draw_item_survives_save_load(shown_view, tmp_path):
-    from beeref.fileio import SQLiteIO
+    from xref.fileio import SQLiteIO
     view = shown_view
     view.scene.set_pen_color(QtGui.QColor(11, 22, 33))
     view.scene.set_pen_width(14)
@@ -815,8 +815,8 @@ def test_build_export_mime_data_image_without_file(view):
 
 
 def test_build_export_mime_data_text(view):
-    from beeref.items import BeeTextItem
-    item = BeeTextItem('hello export')
+    from xref.items import XRefTextItem
+    item = XRefTextItem('hello export')
     view.scene.addItem(item)
     mime = view.build_export_mime_data([item])
     assert mime is not None
@@ -825,7 +825,7 @@ def test_build_export_mime_data_text(view):
 
 
 def test_build_export_mime_data_video(view, videofilename):
-    item = BeeVideoItem(video_path=videofilename, size=(32, 32))
+    item = XRefVideoItem(video_path=videofilename, size=(32, 32))
     view.scene.addItem(item)
     try:
         mime = view.build_export_mime_data([item])
@@ -837,8 +837,8 @@ def test_build_export_mime_data_video(view, videofilename):
 
 
 def test_build_export_mime_data_drawing_is_ignored(view):
-    from beeref.items import BeeDrawItem
-    item = BeeDrawItem()
+    from xref.items import XRefDrawItem
+    item = XRefDrawItem()
     item.add_point(QtCore.QPointF(0, 0))
     view.scene.addItem(item)
     assert view.build_export_mime_data([item]) is None
@@ -869,7 +869,7 @@ def test_drag_outside_keeps_item_in_place(shown_view):
     item = add_image(view, 100, 100)
     item.setSelected(True)
     view.on_selection_changed()
-    with patch('beeref.view.QtGui.QDrag') as drag_cls:
+    with patch('xref.view.QtGui.QDrag') as drag_cls:
         view._drag_export_items = [item]
         view._drag_export_positions = [QtCore.QPointF(100, 100)]
         # As if the in-scene drag already moved the item
