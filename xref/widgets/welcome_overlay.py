@@ -94,7 +94,9 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
                 f'<p>{tr("Right-click for more options.")}</p>'
                 f'<p>{tr("Double-click the empty canvas to go full screen.")}'
                 f'</p>'
-                f'<p>{tr("Hold Ctrl+Alt and drag to move the window.")}</p>')
+                f'<p>'
+                f'{tr("Drag just inside a window edge to move the window.")}'
+                f'</p>')
 
     def __init__(self, parent):
         super().__init__(parent)

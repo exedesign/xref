@@ -457,8 +457,8 @@ TRANSLATIONS = {
             'Daha fazla seçenek için sağ tıklayın.',
         'Double-click the empty canvas to go full screen.':
             'Tam ekran için boş alana çift tıklayın.',
-        'Hold Ctrl+Alt and drag to move the window.':
-            'Pencereyi taşımak için Ctrl+Alt basılı tutup sürükleyin.',
+        'Drag just inside a window edge to move the window.':
+            'Pencereyi taşımak için kenarın hemen içindeki alanı sürükleyin.',
         'Recent Files': 'Son Dosyalar',
         '&Controls': '&Kontroller',
     },
