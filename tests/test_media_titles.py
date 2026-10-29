@@ -80,6 +80,25 @@ def test_pixmap_paints_no_title_when_disabled(view, qapp):
             assert image.pixelColor(x, y).lightness() <= 40
 
 
+def test_title_shows_only_the_file_name_not_the_path(view, qapp):
+    item = make_image_item(view, r'C:\Users\MGX\Desktop\my_photo.png')
+    view.settings.setValue('Items/show_media_titles', True)
+    qapp.processEvents()
+    image = QtGui.QImage(400, 300, QtGui.QImage.Format.Format_ARGB32)
+    image.fill(QtGui.QColor(0, 0, 0))
+    painter = QtGui.QPainter(image)
+    item.paint(painter, None, None)
+    painter.end()
+    # The short name fits into the band; a full path would be much wider.
+    # Measure where drawn pixels end below the image
+    last_x = 0
+    for y in range(150, 190):
+        for x in range(0, 400):
+            if image.pixelColor(x, y).lightness() > 40:
+                last_x = max(last_x, x)
+    assert 10 < last_x < 150  # "my_photo.png" only, not the whole path
+
+
 def test_video_and_pdf_have_the_title_hook(view):
     video = make_video_item(view)
     # The hook is present on all media classes via the mixin

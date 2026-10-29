@@ -243,6 +243,8 @@ class XRefItemMixin(SelectableMixin):
 
         if not text:
             return
+        # Only the file name, never the full path it was loaded from
+        text = os.path.basename(text)
         settings = getattr(self, 'settings', None)
         if settings is None:
             return
