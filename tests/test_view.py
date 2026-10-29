@@ -1042,6 +1042,132 @@ def test_window_move_area_shows_a_move_cursor(view):
     assert view.viewport().cursor().shape() != Qt.CursorShape.SizeAllCursor
 
 
+def press(widget, pos):
+    event = QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseButtonPress,
+        QtCore.QPointF(pos),
+        QtCore.QPointF(pos),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier)
+    widget.mousePressEvent(event)
+
+
+def test_resize_keeps_the_canvas_centre(view):
+    for i in range(3):
+        item = XRefPixmapItem(QtGui.QImage(
+            300, 300, QtGui.QImage.Format.Format_ARGB32))
+        view.scene.addItem(item)
+        item.setPos(1000 + i * 400, 1000)
+    view.on_action_fit_scene()
+
+    def centre_scene():
+        viewport = view.viewport()
+        return view.viewport_to_scene(
+            QtCore.QPointF(viewport.width() / 2, viewport.height() / 2))
+
+    for size in ((1200, 800), (400, 300), (1000, 700)):
+        before = centre_scene()
+        view.resize(*size)
+        pixel = view.scene_to_viewport(before)
+        assert abs(pixel.x() - view.viewport().width() / 2) < 2
+        assert abs(pixel.y() - view.viewport().height() / 2) < 2
+
+
+def test_welcome_overlay_moves_and_resizes_the_window(view):
+    overlay = view.welcome_overlay
+    assert overlay.isVisible()
+    move_mock = MagicMock(return_value=True)
+    resize_mock = MagicMock(return_value=True)
+    view.start_window_move = move_mock
+    view.start_window_resize = resize_mock
+
+    middle_y = view.viewport().height() / 2
+    press(overlay, QtCore.QPointF(12, middle_y))
+    assert move_mock.called
+
+    press(overlay, QtCore.QPointF(2, middle_y))
+    assert resize_mock.called
+    assert resize_mock.call_args[0][0] == Qt.Edge.LeftEdge
+
+    move_mock.reset_mock()
+    resize_mock.reset_mock()
+    press(overlay, QtCore.QPointF(view.viewport().width() / 2, middle_y))
+    assert not move_mock.called
+    assert not resize_mock.called
+
+
+def wheel(widget, delta, modifiers=Qt.KeyboardModifier.NoModifier,
+          pos=QtCore.QPointF(200.0, 150.0)):
+    event = QtGui.QWheelEvent(
+        pos, pos, QtCore.QPoint(0, 0), QtCore.QPoint(0, delta),
+        Qt.MouseButton.NoButton, modifiers,
+        Qt.ScrollPhase.NoScrollPhase, False)
+    widget.wheelEvent(event)
+
+
+def test_empty_board_can_be_panned(view):
+    assert not view.scene.items()
+    before = view.horizontalScrollBar().value()
+    view.pan(QtCore.QPointF(40, 0))
+    assert view.horizontalScrollBar().value() != before
+
+
+def test_empty_board_can_be_zoomed(view):
+    assert not view.scene.items()
+    before = view.get_scale()
+    wheel(view, 120)
+    assert view.get_scale() > before
+
+
+def test_empty_board_zoom_is_limited(view):
+    for _ in range(200):
+        wheel(view, -120)
+    assert view.get_scale() >= 0.04
+
+
+def test_welcome_overlay_forwards_wheel_zoom(view):
+    overlay = view.welcome_overlay
+    before = view.get_scale()
+    wheel(overlay, 120)
+    assert view.get_scale() > before
+
+
+def test_welcome_overlay_forwards_pan(view):
+    overlay = view.welcome_overlay
+    pos = QtCore.QPointF(view.viewport().width() / 2,
+                         view.viewport().height() / 2)
+    event = QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseButtonPress, pos, pos,
+        Qt.MouseButton.MiddleButton, Qt.MouseButton.MiddleButton,
+        Qt.KeyboardModifier.NoModifier)
+    overlay.mousePressEvent(event)
+    assert view.active_mode == view.PAN_MODE
+
+
+def test_welcome_overlay_shows_the_window_edge_cursor(view):
+    overlay = view.welcome_overlay
+    middle_y = view.viewport().height() / 2
+    event = QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseMove,
+        QtCore.QPointF(12, middle_y),
+        QtCore.QPointF(12, middle_y),
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier)
+    overlay.mouseMoveEvent(event)
+    assert overlay.cursor().shape() == Qt.CursorShape.SizeAllCursor
+    middle = QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseMove,
+        QtCore.QPointF(view.viewport().width() / 2, middle_y),
+        QtCore.QPointF(view.viewport().width() / 2, middle_y),
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier)
+    overlay.mouseMoveEvent(middle)
+    assert overlay.cursor().shape() != Qt.CursorShape.SizeAllCursor
+
+
 def test_window_with_titlebar_has_no_resize_handles(view):
     view.parent.resize(400, 300)
     view.on_action_show_titlebar(True)
@@ -1274,8 +1400,9 @@ def test_pan(scroll_value_mock, view, item):
 
 @patch('PyQt6.QtWidgets.QScrollBar.setValue')
 def test_pan_when_no_items(scroll_value_mock, view):
+    # An empty board can be panned as well, so the window stays usable
     view.pan(QtCore.QPointF(5.0, 10.0))
-    scroll_value_mock.assert_not_called()
+    assert scroll_value_mock.call_count == 2
 
 
 @patch('xref.view.XRefGraphicsView.reset_previous_transform')
@@ -1325,11 +1452,12 @@ def test_zoom_out_min_zoom_size(pan_mock, reset_mock, view, item):
 
 @patch('xref.view.XRefGraphicsView.reset_previous_transform')
 @patch('xref.view.XRefGraphicsView.pan')
-def test_no_items(pan_mock, reset_mock, view, item):
+def test_zoom_when_no_items(pan_mock, reset_mock, view, item):
+    # An empty board can be zoomed as well (with fixed limits)
     view.zoom(40, QtCore.QPointF(10.0, 10.0))
-    assert view.get_scale() == 1
-    reset_mock.assert_not_called()
-    pan_mock.assert_not_called()
+    assert view.get_scale() == 1.04
+    reset_mock.assert_called_once_with()
+    pan_mock.assert_called_once()
 
 
 @patch('xref.view.XRefGraphicsView.reset_previous_transform')

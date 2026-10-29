@@ -144,7 +144,7 @@ class XRefGraphicsView(MainControlsMixin,
         self.filename = None
         self.previous_transform = None
         self.active_mode = None
-        self._resize_cursor_active = False
+        self._native_resize_active = False
 
         self.scene = XRefGraphicsScene(self.undo_stack)
         self.scene.changed.connect(self.on_scene_changed)
@@ -408,6 +408,18 @@ class XRefGraphicsView(MainControlsMixin,
         handle = self.parent.windowHandle()
         return handle is not None and handle.startSystemMove()
 
+    def start_window_resize(self, edges):
+        """Starts a native window resize from the given edges."""
+
+        handle = self.parent.windowHandle()
+        if handle is None:
+            return False
+        self._native_resize_active = True
+        try:
+            return handle.startSystemResize(edges)
+        finally:
+            self._native_resize_active = False
+
     def make_menubar_dragable(self, menu_bar):
         """Lets the empty part of the menu bar move the window."""
 
@@ -504,19 +516,25 @@ class XRefGraphicsView(MainControlsMixin,
             return QtGui.QCursor(cursor.SizeHorCursor)
         return QtGui.QCursor(cursor.SizeVerCursor)
 
-    def update_window_edge_cursor(self, pos):
+    def update_window_edge_cursor(self, pos, widget=None):
+        """Shows a resize/move cursor while the pointer is on a window edge.
+
+        ``widget`` is the surface the pointer is over; it defaults to the
+        view's viewport but the welcome overlay passes itself.
+        """
+
+        widget = widget if widget is not None else self.viewport()
         hit = self.window_edge_hit(pos)
         if hit is None:
-            if self._resize_cursor_active:
-                self._resize_cursor_active = False
-                self.viewport().unsetCursor()
+            if getattr(widget, '_window_edge_cursor_active', False):
+                widget._window_edge_cursor_active = False
+                widget.unsetCursor()
             return
-        self._resize_cursor_active = True
+        widget._window_edge_cursor_active = True
         if hit[0] == 'move':
-            self.viewport().setCursor(
-                QtGui.QCursor(Qt.CursorShape.SizeAllCursor))
+            widget.setCursor(QtGui.QCursor(Qt.CursorShape.SizeAllCursor))
         else:
-            self.viewport().setCursor(self.resize_cursor(hit[1]))
+            widget.setCursor(self.resize_cursor(hit[1]))
 
     def on_action_show_scrollbars(self, checked):
         if checked:
@@ -1597,6 +1615,17 @@ class XRefGraphicsView(MainControlsMixin,
 
         if self.previous_transform:
             return
+        if not self.scene.items():
+            # An empty board has no items to expand around, but it still
+            # has to be pannable and zoomable
+            centre = self.mapToScene(self.get_view_center())
+            half = self.viewport().width() + self.viewport().height()
+            margin = abs(self.viewport_to_scene(
+                QtCore.QPointF(half, half)).x() - centre.x())
+            rect = QtCore.QRectF(centre, centre).adjusted(
+                -margin, -margin, margin, margin)
+            self.setSceneRect(rect)
+            return
         logger.trace('Recalculating scene rectangle...')
         try:
             topleft = self.mapFromScene(
@@ -1630,6 +1659,10 @@ class XRefGraphicsView(MainControlsMixin,
             self.scene.itemsBoundingRect().topLeft())
         bottomright = self.mapFromScene(
             self.scene.itemsBoundingRect().bottomRight())
+        if bottomright.x() - topleft.x() < 1:
+            # An empty board: use the scene rectangle as the reference
+            topleft = self.mapFromScene(self.sceneRect().topLeft())
+            bottomright = self.mapFromScene(self.sceneRect().bottomRight())
         return func(bottomright.x() - topleft.x(),
                     bottomright.y() - topleft.y())
 
@@ -1642,19 +1675,21 @@ class XRefGraphicsView(MainControlsMixin,
         return self.transform().m11()
 
     def pan(self, delta):
-        if not self.scene.items():
-            logger.debug('No items in scene; ignore pan')
-            return
-
         hscroll = self.horizontalScrollBar()
         hscroll.setValue(int(hscroll.value() + delta.x()))
         vscroll = self.verticalScrollBar()
         vscroll.setValue(int(vscroll.value() + delta.y()))
+        if not self.scene.items():
+            # Keep the empty board scrollable in every direction
+            self.recalc_scene_rect()
 
     def zoom(self, delta, anchor):
         if not self.scene.items():
-            logger.debug('No items in scene; ignore zoom')
-            return
+            # An empty board has no items to limit the zoom, so use fixed
+            # limits instead (the scene rectangle follows the view)
+            scale = self.get_scale()
+            if (delta > 0 and scale >= 50) or (delta < 0 and scale <= 0.05):
+                return
 
         # We calculate where the anchor is before and after the zoom
         # and then move the view accordingly to keep the anchor fixed
@@ -1704,20 +1739,26 @@ class XRefGraphicsView(MainControlsMixin,
             event.accept()
             return
 
+    def handle_window_edge_press(self, event):
+        """Starts a native window move or resize for a frameless window.
+
+        Used by the view and by the welcome overlay, so the window can be
+        moved and resized even while the board is empty.
+        """
+
+        hit = self.window_edge_hit(event.pos())
+        if hit is None or event.button() != Qt.MouseButton.LeftButton:
+            return False
+        if hit[0] == 'resize':
+            return self.start_window_resize(hit[1])
+        return self.start_window_move()
+
     def mousePressEvent(self, event):
         if self.mousePressEventMainControls(event):
             return
-        hit = self.window_edge_hit(event.pos())
-        if hit is not None and event.button() == Qt.MouseButton.LeftButton:
-            # Frameless windows have neither title bar nor OS border
-            if hit[0] == 'resize':
-                handle = self.parent.windowHandle()
-                if handle is not None and handle.startSystemResize(hit[1]):
-                    event.accept()
-                    return
-            elif self.start_window_move():
-                event.accept()
-                return
+        if self.handle_window_edge_press(event):
+            event.accept()
+            return
         if self.active_mode == self.SAMPLE_COLOR_MODE:
             if (event.button() == Qt.MouseButton.LeftButton):
                 color = self.scene.sample_color_at(
@@ -1827,8 +1868,73 @@ class XRefGraphicsView(MainControlsMixin,
             return
         super().mouseReleaseEvent(event)
 
+    def viewport_to_scene(self, point):
+        """Maps a viewport position to the scene without rounding."""
+
+        transform, invertible = self.viewportTransform().inverted()
+        if not invertible:
+            return QtCore.QPointF(point)
+        return transform.map(QtCore.QPointF(point))
+
+    def scene_to_viewport(self, point):
+        """Maps a scene position to the viewport without rounding."""
+
+        return self.viewportTransform().map(QtCore.QPointF(point))
+
+    def resize_anchor(self):
+        """The scene point that should stay put while the window is resized.
+
+        Only used while the user drags a window edge: the point under the
+        pointer stays under the pointer.
+
+        :rtype: tuple(QtCore.QPointF, QtCore.QPoint)
+        """
+
+        global_pos = QtGui.QCursor.pos()
+        local = QtCore.QPointF(self.mapFromGlobal(global_pos))
+        return self.viewport_to_scene(local), global_pos
+
+    def scroll_scene_point_to(self, scene_point, target):
+        """Scrolls the view so a scene point ends up at a viewport position."""
+
+        delta = QtCore.QPointF(target) - self.scene_to_viewport(scene_point)
+        # Scrollbar units are viewport pixels, so the delta can be applied
+        # directly. It is recomputed each time, so rounding can't add up.
+        if abs(delta.x()) >= 0.5:
+            bar = self.horizontalScrollBar()
+            bar.setValue(bar.value() - round(delta.x()))
+        if abs(delta.y()) >= 0.5:
+            bar = self.verticalScrollBar()
+            bar.setValue(bar.value() - round(delta.y()))
+
+    def restore_resize_anchor(self, anchor):
+        """Keeps the anchor at the same screen position after a resize."""
+
+        scene_point, global_pos = anchor
+        target = QtCore.QPointF(self.mapFromGlobal(global_pos))
+        self.scroll_scene_point_to(scene_point, target)
+
     def resizeEvent(self, event):
+        old = event.oldSize()
+        anchor = None
+        centre = None
+        if old.width() > 0 and old.height() > 0:
+            # The canvas must not slide when the window is resized or when
+            # it goes full screen: keep the middle of the view where it was
+            centre = self.viewport_to_scene(
+                QtCore.QPointF(old.width() / 2, old.height() / 2))
+            if self._native_resize_active:
+                # While dragging an edge, keep the point under the pointer
+                anchor = self.resize_anchor()
         super().resizeEvent(event)
+        if centre is not None:
+            self.scroll_scene_point_to(
+                centre, QtCore.QPointF(self.viewport().width() / 2,
+                                       self.viewport().height() / 2))
+        if anchor is not None:
+            self.restore_resize_anchor(anchor)
+        # The scene rectangle is expanded around the new view position, so
+        # it has to be recalculated after the canvas was anchored
         self.recalc_scene_rect()
         self.welcome_overlay.resize(self.size())
 

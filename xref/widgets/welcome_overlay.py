@@ -155,19 +155,29 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
             on=False)
 
     def mousePressEvent(self, event):
+        if self.control_target.handle_window_edge_press(event):
+            event.accept()
+            return
         if self.mousePressEventMainControls(event):
             return
-        super().mousePressEvent(event)
+        # The overlay covers the empty board, so it has to hand the events
+        # to the view; panning, zooming and the context menu keep working
+        self.control_target.mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        self.control_target.update_window_edge_cursor(event.pos(),
+                                                      widget=self)
         if self.mouseMoveEventMainControls(event):
             return
-        super().mouseMoveEvent(event)
+        self.control_target.mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
         if self.mouseReleaseEventMainControls(event):
             return
-        super().mouseReleaseEvent(event)
+        self.control_target.mouseReleaseEvent(event)
+
+    def wheelEvent(self, event):
+        self.control_target.wheelEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         """A double click on the empty overlay switches to full screen."""

@@ -51,6 +51,13 @@ Added
   in Settings -> Miscellaneous -> Window Edge Move Area). Ctrl+Alt+drag and
   Ctrl+M still move the window. The title bar and the always-on-top state
   are remembered between sessions.
+* The canvas no longer slides when the window is resized, maximised or
+  switched to full screen: the middle of the view stays where it was, and
+  while a window edge is dragged the point under the pointer stays under
+  the pointer.
+* An empty board is fully usable: the window can be moved and resized from
+  its edges through the welcome screen, and the canvas can already be
+  panned and zoomed before the first image is added.
 * Videos and PDFs: a single left click now pins the frame or page under
   the pointer (a small padlock in the corner shows it), so moving the
   mouse over the item no longer scrubs or flips through it. The next
