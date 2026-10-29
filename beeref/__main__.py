@@ -91,9 +91,15 @@ def handle_sigint(signum, frame):
 
 
 def handle_uncaught_exception(exc_type, exc, traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        logger.info('Received interrupt. Exiting...')
+        QtWidgets.QApplication.quit()
+        return
+    # Errors in Qt event handlers (e.g. hovering a media item) shouldn't
+    # take down the whole application and lose unsaved work; log and
+    # keep running instead.
     logger.critical('Unhandled exception',
                     exc_info=(exc_type, exc, traceback))
-    QtWidgets.QApplication.quit()
 
 
 sys.excepthook = handle_uncaught_exception
@@ -108,6 +114,7 @@ def main():
     logger.info(f'Using settings: {settings.fileName()}')
     logger.info(f'Logging to: {logfile_name()}')
     settings.on_startup()
+    # settings.on_startup() also applies the stored language
     args = CommandlineArgs(with_check=True)  # Force checking
     assert not args.debug_raise_error, args.debug_raise_error
 

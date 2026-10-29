@@ -20,6 +20,7 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
 from beeref.config import BeeSettings
+from beeref.i18n import tr
 from beeref.main_controls import MainControlsMixin
 
 
@@ -87,8 +88,10 @@ class RecentFilesView(QtWidgets.QListView):
 class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
     """Some basic info to be displayed when the scene is empty."""
 
-    txt = """<p>Paste or drop images here.</p>
-             <p>Right-click for more options.</p>"""
+    @property
+    def txt(self):
+        return (f'<p>{tr("Paste or drop images and videos here.")}</p>'
+                f'<p>{tr("Right-click for more options.")}</p>')
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -101,7 +104,8 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
         files_layout = QtWidgets.QVBoxLayout()
         files_layout.addStretch(50)
         files_layout.addWidget(
-            QtWidgets.QLabel('<h3>Recent Files</h3>', self))
+            QtWidgets.QLabel(
+                f'<h3>{tr("Recent Files")}</h3>', self))
         self.files_view = RecentFilesView(self, parent)
         files_layout.addWidget(self.files_view)
         files_layout.addStretch(50)
@@ -117,6 +121,11 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
         self.layout.addWidget(self.label)
         self.layout.addStretch(50)
         self.setLayout(self.layout)
+
+    def retranslate(self):
+        """Updates the labels after a language change."""
+
+        self.label.setText(self.txt)
 
     def show(self):
         files = BeeSettings().get_recent_files(existing_only=True)

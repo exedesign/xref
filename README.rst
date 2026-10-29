@@ -70,7 +70,13 @@ Features
 Regarding the bee file format
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-All images are embedded into the bee file as PNG or JPG. The bee file format is a sqlite database inside which the images are stored in an sqlar table—meaning they can be extracted with the `sqlite command line program <https://www.sqlite.org/cli.html>`_::
+All images are embedded into the bee file as PNG, JPG or WebP (depending
+on the "Image Storage Format" setting). Videos are referenced by their
+source path instead of being copied, and are only embedded when the
+original file is no longer available. The bee file format is a sqlite
+database inside which the images (and any embedded videos) are stored in
+an sqlar table—meaning they can be extracted with the
+`sqlite command line program <https://www.sqlite.org/cli.html>`_::
 
   sqlite3 myfile.bee -Axv
 

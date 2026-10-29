@@ -19,7 +19,8 @@ import logging
 from PyQt6 import QtCore, QtWidgets, QtGui
 from PyQt6.QtCore import Qt
 
-from beeref import constants, commands
+from beeref import constants, commands, i18n
+from beeref.i18n import tr
 from beeref.config import logfile_name
 from beeref.widgets import (  # noqa: F401
     controls,
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 class BeeProgressDialog(QtWidgets.QProgressDialog):
 
     def __init__(self, label, worker, maximum=0, parent=None):
-        super().__init__(label, 'Cancel', 0, maximum, parent=parent)
+        super().__init__(label, tr('Cancel'), 0, maximum, parent=parent)
         logger.debug('Initialised progress bar')
         self.setMinimumDuration(0)
         self.setWindowModality(Qt.WindowModality.WindowModal)
@@ -66,20 +67,24 @@ class BeeProgressDialog(QtWidgets.QProgressDialog):
 class HelpDialog(QtWidgets.QDialog):
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle(f'{constants.APPNAME} Help')
+        self.setWindowTitle(
+            tr('{app} Help', app=constants.APPNAME))
 
         tabs = QtWidgets.QTabWidget()
 
         # Controls
+        filename = ('controls_tr.html' if i18n.current_language() == 'tr'
+                    else 'controls.html')
         controls_txt = rsc_files(
-            'beeref.documentation').joinpath('controls.html').read_text()
+            'beeref.documentation').joinpath(filename).read_text(
+                encoding='utf-8')
         controls_label = QtWidgets.QLabel(controls_txt)
         controls_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         scroll = QtWidgets.QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setWidget(controls_label)
-        tabs.addTab(scroll, '&Controls')
+        tabs.addTab(scroll, tr('&Controls'))
 
         layout = QtWidgets.QVBoxLayout()
         self.setLayout(layout)
@@ -97,7 +102,8 @@ class HelpDialog(QtWidgets.QDialog):
 class DebugLogDialog(QtWidgets.QDialog):
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle(f'{constants.APPNAME} Debug Log')
+        self.setWindowTitle(
+            tr('{app} Debug Log', app=constants.APPNAME))
         with open(logfile_name()) as f:
             self.log_txt = f.read()
 
@@ -107,7 +113,8 @@ class DebugLogDialog(QtWidgets.QDialog):
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
-        self.copy_button = QtWidgets.QPushButton('Co&py To Clipboard')
+        self.copy_button = QtWidgets.QPushButton(
+            tr('Co&py To Clipboard'))
         self.copy_button.released.connect(self.copy_to_clipboard)
         buttons.addButton(
             self.copy_button, QtWidgets.QDialogButtonBox.ButtonRole.ActionRole)
@@ -141,12 +148,12 @@ class SceneToPixmapExporterDialog(QtWidgets.QDialog):
                 Qt.AspectRatioMode.KeepAspectRatio)
 
         self.ignore_change = False
-        self.setWindowTitle('Export Scene to Image')
+        self.setWindowTitle(tr('Export Scene to Image'))
         self.setWindowModality(Qt.WindowModality.WindowModal)
         layout = QtWidgets.QGridLayout()
         self.setLayout(layout)
 
-        width_label = QtWidgets.QLabel('Width:')
+        width_label = QtWidgets.QLabel(tr('Width:'))
         layout.addWidget(width_label, 0, 0)
         self.width_input = QtWidgets.QSpinBox()
         self.width_input.setRange(self.MIN_SIZE, self.MAX_SIZE)
@@ -154,7 +161,7 @@ class SceneToPixmapExporterDialog(QtWidgets.QDialog):
         self.width_input.valueChanged.connect(self.on_width_changed)
         layout.addWidget(self.width_input, 0, 1)
 
-        height_label = QtWidgets.QLabel('Height:')
+        height_label = QtWidgets.QLabel(tr('Height:'))
         layout.addWidget(height_label, 1, 0)
         self.height_input = QtWidgets.QSpinBox()
         self.height_input.setMinimum(10)
@@ -203,12 +210,12 @@ class ChangeOpacityDialog(QtWidgets.QDialog):
 
         value = int(images[0].opacity() * 100) if images else 100
 
-        self.setWindowTitle('Change Opacity:')
+        self.setWindowTitle(tr('Change Opacity:'))
         self.setWindowModality(Qt.WindowModality.WindowModal)
         layout = QtWidgets.QVBoxLayout()
         self.setLayout(layout)
 
-        self.label = QtWidgets.QLabel('Opacity:')
+        self.label = QtWidgets.QLabel(tr('Opacity:'))
         layout.addWidget(self.label)
 
         self.input = QtWidgets.QSlider(Qt.Orientation.Horizontal)
@@ -229,7 +236,7 @@ class ChangeOpacityDialog(QtWidgets.QDialog):
         self.show()
 
     def on_value_changed(self, value):
-        self.label.setText(f'Opacity: {value}%')
+        self.label.setText(tr('Opacity: {value}%', value=value))
         self.command.opacity = value / 100
         self.command.redo()
 
@@ -303,19 +310,19 @@ class ExportImagesFileExistsDialog(QtWidgets.QDialog):
 
     def __init__(self, parent, filename):
         super().__init__(parent)
-        self.setWindowTitle('File exists')
+        self.setWindowTitle(tr('File exists'))
 
         layout = QtWidgets.QVBoxLayout()
         self.setLayout(layout)
 
         label = QtWidgets.QLabel(
-            f'File already exists:\n{filename}')
+            tr('File already exists:\n{filename}', filename=filename))
         layout.addWidget(label)
 
-        choices = (('skip', 'Skip this file'),
-                   ('skip_all', 'Skip all existing files'),
-                   ('overwrite', 'Overwrite this file'),
-                   ('overwrite_all', 'Overwrite all existing files'))
+        choices = (('skip', tr('Skip this file')),
+                   ('skip_all', tr('Skip all existing files')),
+                   ('overwrite', tr('Overwrite this file')),
+                   ('overwrite_all', tr('Overwrite all existing files')))
 
         self.radio_buttons = {}
         for (value, label) in choices:

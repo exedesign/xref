@@ -34,7 +34,8 @@ import tempfile
 from PyQt6 import QtGui
 
 from beeref import constants
-from beeref.items import BeePixmapItem, BeeErrorItem
+from beeref.items import BeePixmapItem, BeeErrorItem, BeeVideoItem, \
+    BeeDrawItem
 from .errors import BeeFileIOError, IMG_LOADING_ERROR_MSG
 from .schema import SCHEMA, USER_VERSION, MIGRATIONS, APPLICATION_ID
 
@@ -193,13 +194,15 @@ class SQLiteIO:
             'SELECT items.id, type, x, y, z, scale, rotation, flip, '
             'items.data, sqlar.data '
             'FROM sqlar JOIN items on sqlar.item_id = items.id')
-        # Avoid OUTER JOIN for performance reasons; fetch text items
-        # separately instead
+        # Avoid OUTER JOIN for performance reasons; fetch items without
+        # embedded data (text, draw) separately instead
         rows.extend(self.fetchall(
             'SELECT items.id, type, x, y, z, scale, rotation, flip, '
             ' items.data, null as data '
             'FROM items '
-            'WHERE items.type = "text"'))
+            'WHERE items.type IN ("text", "draw") '
+            'OR (items.type = "video" AND items.id NOT IN '
+            '(SELECT item_id FROM sqlar))'))
         if self.worker:
             self.worker.begin_processing.emit(len(rows))
 
@@ -226,6 +229,16 @@ class SQLiteIO:
                     data['type'] = BeeErrorItem.TYPE
                 data['item'] = item
 
+            if data['type'] == 'video':
+                item = BeeVideoItem()
+                if row[9] is not None:
+                    item.video_from_bytes(row[9])
+                data['item'] = item
+
+            if data['type'] == 'draw':
+                item = BeeDrawItem.create_from_data(data=data['data'])
+                data['item'] = item
+
             self.scene.add_item_later(data)
 
             if self.worker:
@@ -236,8 +249,36 @@ class SQLiteIO:
                     return
                 # Give main thread time to process items:
                 self.worker.msleep(10)
+        # Links are restored after the items have been added to the scene
+        self.add_queued_items()
+        self.read_links()
         if self.worker:
             self.worker.finished.emit(self.filename, [])
+
+    def add_queued_items(self):
+        self.scene.add_queued_items()
+
+    def read_links(self):
+        """Restores node links between items from the links table."""
+
+        try:
+            if not self.fetchone(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name='links'"):
+                # Older bee files without the links table
+                return
+            rows = self.fetchall('SELECT source_id, target_id FROM links')
+        except sqlite3.Error:
+            return
+        by_id = {item.save_id: item
+                 for item in self.scene.items()
+                 if hasattr(item, 'save_id') and item.save_id}
+        for source_id, target_id in rows:
+            source = by_id.get(source_id)
+            target = by_id.get(target_id)
+            if source is not None and target is not None:
+                self.scene.add_link(source, target)
+        logger.debug(f'Restored {len(rows)} links')
 
     @handle_sqlite_errors
     def write(self):
@@ -283,8 +324,34 @@ class SQLiteIO:
                 if self.worker.canceled:
                     break
         self.delete_items(to_delete)
+        self.write_links()
+        self.connection.commit()
         self.ex('VACUUM')
         self.connection.commit()
+
+    def _ensure_links_table(self):
+        """Creates the links table if it doesn't exist yet (files
+        written before links were supported)."""
+
+        if not self.fetchone(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='links'"):
+            self.ex(
+                'CREATE TABLE links (id INTEGER PRIMARY KEY, '
+                'source_id INTEGER NOT NULL, target_id INTEGER NOT NULL, '
+                'UNIQUE (source_id, target_id))')
+
+    def write_links(self):
+        """Saves node links between items to the links table."""
+
+        self._ensure_links_table()
+        self.ex('DELETE FROM links')
+        rows = [(source.save_id, target.save_id)
+                for source, target in self.scene.active_links()
+                if getattr(source, 'save_id', None) is not None
+                and getattr(target, 'save_id', None) is not None]
+        self.exmany('INSERT INTO links (source_id, target_id) '
+                    'VALUES (?, ?)', rows)
         if self.worker:
             self.worker.finished.emit(self.filename, [])
 
@@ -311,6 +378,18 @@ class SQLiteIO:
                 'INSERT INTO sqlar (item_id, name, mode, sz, data) '
                 'VALUES (?, ?, ?, ?, ?)',
                 (item.save_id, name, 0o644, len(pixmap), pixmap))
+
+        if item.TYPE == 'video':
+            # Videos are played from their source location; only data
+            # whose source file is gone (old bee files) stays embedded
+            data = item.embedded_video_bytes()
+            if data is not None:
+                ext = item.get_video_extension().lstrip('.')
+                name = item.get_filename_for_export(ext)
+                self.ex(
+                    'INSERT INTO sqlar (item_id, name, mode, sz, data) '
+                    'VALUES (?, ?, ?, ?, ?)',
+                    (item.save_id, name, 0o644, len(data), data))
         self.connection.commit()
 
     def update_item(self, item):

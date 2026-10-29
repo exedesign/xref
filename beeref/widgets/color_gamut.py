@@ -19,6 +19,8 @@ import math
 from PyQt6 import QtWidgets, QtGui, QtCore
 from PyQt6.QtCore import Qt
 
+from beeref.i18n import tr
+
 
 logger = logging.getLogger(__name__)
 
@@ -106,12 +108,12 @@ class GamutDialog(QtWidgets.QDialog):
     def __init__(self, parent, item):
         super().__init__(parent)
         self.item = item
-        self.setWindowTitle('Color Gamut')
+        self.setWindowTitle(tr('Color Gamut'))
 
         # The input controls on the right
         controls_layout = QtWidgets.QVBoxLayout()
 
-        label = QtWidgets.QLabel('Threshold:', self)
+        label = QtWidgets.QLabel(tr('Threshold:'), self)
         controls_layout.addWidget(label)
         self.threshold_input = QtWidgets.QSlider(self)
         self.threshold_input.setRange(0, 500)

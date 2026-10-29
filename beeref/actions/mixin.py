@@ -19,6 +19,8 @@ import os.path
 
 from PyQt6 import QtGui, QtWidgets
 
+from beeref.i18n import tr
+
 from .actions import Action, actions
 from .menu_structure import menu_structure, MENU_SEPARATOR
 
@@ -35,6 +37,7 @@ class ActionsMixin:
         self.toplevel_menus = []
         self.bee_actiongroups = defaultdict(list)
         self._post_create_functions = []
+        self._menu_source_titles = {}
         self._create_actions()
         self._create_menu(self.context_menu, menu_structure)
         for func, arg in self._post_create_functions:
@@ -43,6 +46,18 @@ class ActionsMixin:
 
     def update_menu_and_actions(self):
         self._build_recent_files()
+
+    def retranslate_actions(self):
+        """Re-applies the active language to all actions and menus."""
+
+        for action in actions.values():
+            if action.qaction is not None:
+                action.qaction.setText(tr(action.text))
+        for menu, source_title in self._menu_source_titles.items():
+            try:
+                menu.setTitle(tr(source_title))
+            except RuntimeError:  # menu already deleted
+                continue
 
     def create_menubar(self):
         menu_bar = QtWidgets.QMenuBar()
@@ -69,7 +84,7 @@ class ActionsMixin:
 
     def _create_actions(self):
         for action in actions.values():
-            qaction = QtGui.QAction(action.text, self)
+            qaction = QtGui.QAction(tr(action.text), self)
             qaction.setAutoRepeat(False)
             shortcuts = action.get_shortcuts()
             if shortcuts:
@@ -95,7 +110,8 @@ class ActionsMixin:
             if item == MENU_SEPARATOR:
                 menu.addSeparator()
             if isinstance(item, dict):
-                submenu = menu.addMenu(item['menu'])
+                submenu = menu.addMenu(tr(item['menu']))
+                self._menu_source_titles[submenu] = item['menu']
                 if menu == self.context_menu:
                     self.toplevel_menus.append(submenu)
                 self._create_menu(submenu, item['items'])

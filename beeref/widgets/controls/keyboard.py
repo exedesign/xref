@@ -19,6 +19,7 @@ import logging
 from PyQt6 import QtWidgets, QtCore
 
 from beeref import constants
+from beeref.i18n import tr
 from beeref.actions.actions import actions
 from beeref.config import KeyboardSettings, settings_events
 
@@ -66,7 +67,7 @@ class KeyboardShortcutsEditor(QtWidgets.QKeySequenceEdit):
                        '<p>Do you want to remove the other shortcut'
                        ' to save this one?</p>')
                 reply = QtWidgets.QMessageBox.question(
-                    self, 'Save Shortcut?', msg)
+                    self, tr('Save Shortcut?'), msg)
                 if reply == QtWidgets.QMessageBox.StandardButton.Yes:
                     self.remove_from_other = action
                 else:

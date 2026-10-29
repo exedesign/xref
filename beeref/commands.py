@@ -365,3 +365,33 @@ class ToggleGrayscale(QtGui.QUndoCommand):
     def undo(self):
         for item, grayscale in zip(self.items, self.old_grayscales):
             item.grayscale = grayscale
+class ChangeDrawStyle(QtGui.QUndoCommand):
+    """Change colour and/or width of freehand strokes."""
+
+    def __init__(self, items, color=None, width=None,
+                 ignore_first_redo=False):
+        super().__init__('Change Drawing Style')
+        self.ignore_first_redo = ignore_first_redo
+        self.items = [item for item in items
+                      if getattr(item, 'is_draw', False)]
+        self.color = color
+        self.width = width
+        self.old_colors = [QtGui.QColor(item.stroke_color)
+                           for item in self.items]
+        self.old_widths = [item.stroke_width for item in self.items]
+
+    def redo(self):
+        if self.ignore_first_redo:
+            self.ignore_first_redo = False
+            return
+        for item in self.items:
+            if self.color is not None:
+                item.set_stroke_color(self.color)
+            if self.width is not None:
+                item.set_stroke_width(self.width)
+
+    def undo(self):
+        for item, color, width in zip(self.items, self.old_colors,
+                                      self.old_widths):
+            item.set_stroke_color(color)
+            item.set_stroke_width(width)

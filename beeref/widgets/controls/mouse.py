@@ -20,6 +20,7 @@ from PyQt6 import QtWidgets, QtCore
 
 from beeref.config import KeyboardSettings, settings_events
 from beeref.config.controls import MouseConfig
+from beeref.i18n import tr
 from beeref.widgets.controls.common import (
     MouseControlsEditorBase,
     MouseControlsModelBase,
@@ -36,7 +37,7 @@ class MouseControlsEditor(MouseControlsEditorBase):
                          'Mouse Controls for:')
         self.old_button = self.action.get_button()
 
-        self.layout.addWidget(QtWidgets.QLabel('Mouse Button:'))
+        self.layout.addWidget(QtWidgets.QLabel(tr('Mouse Button:')))
         self.button_input = QtWidgets.QComboBox(parent=parent)
         self.button_input.insertItems(0, self.action.BUTTON_MAP.keys())
         values = list(self.action.BUTTON_MAP.keys())

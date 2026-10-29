@@ -20,6 +20,7 @@ from PyQt6.QtCore import Qt
 
 from beeref.config import KeyboardSettings
 from beeref import constants
+from beeref.i18n import tr
 
 
 class MouseControlsEditorBase(QtWidgets.QDialog):
@@ -31,7 +32,8 @@ class MouseControlsEditorBase(QtWidgets.QDialog):
         super().__init__(parent)
         self.actions = actions
         self.action = self.actions[index.row()]
-        self.setWindowTitle(f'title {self.action.text}')
+        self.setWindowTitle(
+            f'{constants.APPNAME}: {tr(self.action.text)}')
         self.old_modifiers = self.action.get_modifiers()
         self.remove_from_other = None
         self.ignore_on_changed = False
@@ -41,13 +43,13 @@ class MouseControlsEditorBase(QtWidgets.QDialog):
         self.setModal(True)
 
     def init_modifiers_input(self):
-        group = QtWidgets.QGroupBox('Modifiers')
+        group = QtWidgets.QGroupBox(tr('Modifiers'))
         group_layout = QtWidgets.QVBoxLayout()
         group.setLayout(group_layout)
         self.layout.addWidget(group)
         self.checkboxes = {}
         for mod in self.action.MODIFIER_MAP.keys():
-            checkbox = QtWidgets.QCheckBox(mod)
+            checkbox = QtWidgets.QCheckBox(tr(mod))
             checkbox.setChecked(mod in self.old_modifiers)
             checkbox.stateChanged.connect(
                 partial(self.on_modifiers_changed, mod))
@@ -118,12 +120,13 @@ class MouseControlsEditorBase(QtWidgets.QDialog):
             if action == self.action:
                 continue
             if action.conflicts_with(temp):
-                msg = ('<p>These controls are already used for:</p>'
-                       f'<p>{action.text}</p>'
-                       '<p>Do you want to remove the other controls'
-                       ' to save these ones?</p>')
+                msg = tr('<p>These controls are already used for:</p>'
+                         '<p>{action}</p>'
+                         '<p>Do you want to remove the other controls'
+                         ' to save these ones?</p>',
+                         action=tr(action.text))
                 reply = QtWidgets.QMessageBox.question(
-                    self, 'Save Controls?', msg)
+                    self, tr('Save Controls?'), msg)
                 if reply == QtWidgets.QMessageBox.StandardButton.Yes:
                     self.remove_from_other = action
                     self.accept()

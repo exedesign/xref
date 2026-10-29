@@ -14,6 +14,9 @@
 # along with BeeRef.  If not, see <https://www.gnu.org/licenses/>.
 
 
+from beeref.i18n import tr  # noqa: E402
+
+
 IMG_LOADING_ERROR_MSG = (
     'Unknown format or too big?\n'
     'Check Settings -> Images & Items -> Maximum Image Size')

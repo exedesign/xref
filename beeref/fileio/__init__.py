@@ -20,8 +20,9 @@ from PyQt6 import QtCore
 from beeref import commands
 from beeref.fileio.errors import BeeFileIOError
 from beeref.fileio.image import load_image
+from beeref.fileio.media import load_media
 from beeref.fileio.sql import SQLiteIO, is_bee_file
-from beeref.items import BeePixmapItem
+from beeref.items import BeePixmapItem, BeeVideoItem
 
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     'load_bee',
     'save_bee',
     'load_images',
+    'load_media_items',
     'ThreadedLoader',
     'BeeFileIOError',
 ]
@@ -70,6 +72,56 @@ def load_images(filenames, pos, scene, worker):
         item = BeePixmapItem(img, filename)
         item.set_pos_center(pos)
         scene.add_item_later({'item': item, 'type': 'pixmap'}, selected=True)
+        items.append(item)
+        if worker.canceled:
+            break
+        # Give main thread time to process items:
+        worker.msleep(10)
+
+    scene.undo_stack.push(
+        commands.InsertItems(scene, items, ignore_first_redo=True))
+    worker.finished.emit('', errors)
+
+
+def load_media_items(filenames, pos, scene, worker):
+    """Add images and videos to the existing scene.
+
+    Files are classified by their media type; files that can't be
+    loaded are reported as errors.
+    """
+
+    import os.path
+
+    from beeref.items import _probe_video
+
+    errors = []
+    items = []
+    worker.begin_processing.emit(len(filenames))
+    for i, filename in enumerate(filenames):
+        logger.info(f'Loading media from file {filename}')
+        result = load_media(filename)
+        worker.progress.emit(i)
+        if result is None:
+            logger.info(f'Could not load file {filename}')
+            errors.append(filename)
+            continue
+
+        mtype, data, resolved = result
+        if mtype == 'image':
+            item = BeePixmapItem(data, resolved)
+            itype = 'pixmap'
+        else:
+            probe = _probe_video(data)
+            item = BeeVideoItem(
+                video_path=data,
+                filename=os.path.basename(resolved),
+                size=probe['size'],
+                duration=probe['duration'],
+                preview=probe['preview'],
+            )
+            itype = 'video'
+        item.set_pos_center(pos)
+        scene.add_item_later({'item': item, 'type': itype}, selected=True)
         items.append(item)
         if worker.canceled:
             break

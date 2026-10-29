@@ -1,4 +1,4 @@
-USER_VERSION = 2
+USER_VERSION = 3
 APPLICATION_ID = 2060242126
 
 
@@ -37,5 +37,23 @@ MIGRATIONS = {
     2: [
         "ALTER TABLE items ADD COLUMN data JSON",
         "UPDATE items SET data = json_object('filename', filename)",
+    ],
+    3: [
+        """
+        CREATE TABLE links (
+            id INTEGER PRIMARY KEY,
+            source_id INTEGER NOT NULL,
+            target_id INTEGER NOT NULL,
+            UNIQUE (source_id, target_id),
+            FOREIGN KEY (source_id)
+              REFERENCES items (id)
+                 ON DELETE CASCADE
+                 ON UPDATE NO ACTION,
+            FOREIGN KEY (target_id)
+              REFERENCES items (id)
+                 ON DELETE CASCADE
+                 ON UPDATE NO ACTION
+        )
+        """,
     ],
 }

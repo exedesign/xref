@@ -22,6 +22,84 @@ Added
   further files will be ignored, as previously. If the first argument
   isn't a bee file, all files will be treated as images and inserted
   as if opened with "Insert -> Images".
+* Added support for adding videos to a scene (Insert -> Video, or by
+  dragging & dropping video files). Videos are stored in bee files
+  as their original file and can be played back directly in the scene.
+* Dragging selected media out of the window now starts a normal OS
+  drag & drop, so media can be copied into other applications or
+  folders (images as files or image data, videos as files, text as
+  text). The originals stay in place, so dragging out copies instead of
+  moving.
+* Fixed repaint trails: while items were dragged, old link curves and
+  selection outlines were left behind on the canvas. The view now
+  repaints the affected region (and the whole viewport while links are
+  shown).
+* Improved drag & drop: dropping text or HTML (e.g. from a browser,
+  text editor or chat window) now inserts a text item at the drop
+  position, dropping a text-like file (.txt, .md, .csv, .json, source
+  code, .srt, ...) inserts its contents, and links dropped from a
+  browser are inserted as text. Images, videos and .bee files keep
+  working as before, and unsupported drops now give a clear message
+  instead of failing silently.
+* Added shared board sessions (Collaborate menu), so several BeeRef
+  installations on the same network can work on one board together -
+  the idea is similar to PowerToys' "Mouse Without Borders", but sharing
+  the canvas instead of the pointer. One user starts a session
+  (Collaborate -> Share Board, Ctrl+Shift+H) and gets a session code
+  such as ``K7M4Q-9PXE2``; the others join with that code only
+  (Ctrl+Shift+J) - no IP addresses or port numbers are needed. Items,
+  images, videos (by path), texts, drawings, transforms and node links
+  are kept in sync automatically; a joining user receives the current
+  board. The shared board is not saved automatically - use File -> Save
+  As to keep a copy.
+* Sharing is secured: the session code is stretched with PBKDF2 and is
+  never transmitted (joiners find the host by broadcasting a one-way
+  hash of it), both sides prove knowledge of the code with HMAC during
+  the handshake, all board data is encrypted and authenticated
+  (SHAKE-256 keystream + HMAC-SHA256), tampered or replayed frames are
+  rejected, repeated wrong attempts are rate limited, and the host is
+  asked to approve every peer before it joins
+  (Collaborate -> Ask Before Peers Join). Collaborate -> Show Session
+  Code displays the current code again.
+* Fixed the video player controls not reacting to clicks: the buttons
+  and the volume slider no longer depend on the hover state, and the
+  controls also stay visible while the video is selected.
+* Added WebP as an option for the image storage format
+  (Settings -> Images & Items -> Image Storage Format -> Always WebP),
+  and WebP is now available in the "Export Scene to Image" dialog.
+* Reworked videos: they are now played directly from their source
+  location (bee files store a reference instead of a copy). The first
+  frame is shown as a preview, moving the mouse horizontally over the
+  video scrubs through it (like DaVinci Resolve), and hovering shows
+  media player controls: a single play/pause button, a mute button and
+  a volume slider, plus the current time. There is no seek bar: the
+  position is set by moving the mouse over the video (the red playhead
+  line) or by clicking it. The preview stays pinned to the position
+  where playback was last stopped.
+  Double-click toggles play/pause; Ctrl+Shift+Space does the same. The
+  mute state and volume are saved with the item.
+* Added node-editor style links between media to visualize the
+  relationship between them (parent -> child, drawn as curved arrows
+  with an arrow head). Link an item by dragging from its round link
+  port (shown on hover/selection and marked with a "+"), by Shift+drag
+  from the item, or via Tools -> Link Selected Items (Ctrl+L). The
+  link port appears on the edge nearest to the pointer as a small
+  glowing socket. Links are saved in bee files and survive undo/redo.
+* Links can be removed in three ways: click a link to select it (it is
+  highlighted) and press Delete, drag from a link port onto empty
+  space, or use Tools -> Remove Links from Selected Items
+  (Ctrl+Shift+L). Removing a link never deletes the media items.
+* Holding Ctrl while dragging a parent media now moves all linked
+  child media together with it as a group (one undo step).
+* Added a pen/draw mode for adding freehand notes and sketches to the
+  scene. Toggle it via Tools -> Draw, Ctrl+Shift+D, or by tapping the
+  Alt key twice in quick succession; Esc goes back to the selector.
+  Strokes are smoothed (quadratic interpolation) and drawn with round
+  caps, so they look like a brush. The brush colour (Tools -> Pen
+  Colour) and size (Tools -> Brush Thin/Normal/Thick/Huge) can be
+  changed and are also applied to selected strokes; the size stays
+  constant on screen at any zoom level. Strokes can be selected, moved,
+  restyled and deleted, and are saved in bee files.
 
 Fixed
 -----

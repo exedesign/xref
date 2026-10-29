@@ -203,6 +203,35 @@ class SceneToSVGExporter(SceneExporterBase):
             pos = item.pos() - offset
             anchor = pos
 
+            if not hasattr(item, 'save_id'):
+                continue
+            if item.TYPE == 'draw':
+                color = item._stroke_color
+                # polyline ignores x/y, so bake the position into points
+                points = ' '.join(
+                    f'{pos.x() + p[0] * item.scale()},'
+                    f'{pos.y() + p[1] * item.scale()}'
+                    for p in item.get_extra_save_data()['points'])
+                element = ET.Element(
+                    'polyline',
+                    attrib={
+                        'points': points,
+                        'fill': 'none',
+                        'stroke': color.name(),
+                        'stroke-width': str(item._stroke_width),
+                        'stroke-linecap': 'round',
+                        'stroke-linejoin': 'round'})
+            if item.TYPE == 'video':
+                # Videos aren't part of the SVG; draw a placeholder
+                # rectangle so the layout is preserved
+                width = item.width * item.scale()
+                height = item.height * item.scale()
+                element = ET.Element(
+                    'rect',
+                    attrib={
+                        'width': str(width),
+                        'height': str(height),
+                        'fill': '#282828'})
             if item.TYPE == 'text':
                 styles = self._get_textstyles(item)
                 element = ET.Element(

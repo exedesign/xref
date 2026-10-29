@@ -199,6 +199,16 @@ def test_get_imgformat_png_when_setting_png(
     assert item.get_imgformat(img) == 'png'
 
 
+def test_get_imgformat_webp_when_setting_webp(
+        qapp, settings, item):
+    settings.setValue('Items/image_storage_format', 'webp')
+    img = MagicMock(
+        hasAlphaChannel=MagicMock(return_value=False),
+        height=MagicMock(return_value=1600),
+        width=MagicMock(return_value=1200))
+    assert item.get_imgformat(img) == 'webp'
+
+
 def test_pixmap_to_bytes_png(qapp, imgfilename3x3):
     item = BeePixmapItem(QtGui.QImage(imgfilename3x3))
     item.crop = QtCore.QRectF(0, 0, 2, 2)

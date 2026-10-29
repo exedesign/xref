@@ -14,11 +14,14 @@
 # along with BeeRef.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
+import os.path
 
 from PyQt6 import QtCore, QtGui
 from PyQt6.QtCore import Qt
 
 from beeref import commands, widgets
+from beeref.i18n import tr
+from beeref.fileio.media import media_type
 from beeref.items import BeePixmapItem
 from beeref import fileio
 
@@ -30,9 +33,21 @@ class MainControlsMixin:
     """Basic controls shared by the main view and the welcome overlay:
 
     * Right-click menu
-    * Dropping files
+    * Dropping files, images, texts and links
     * Moving the window without title bar
     """
+
+    # Files with these extensions are inserted as text items
+    TEXT_FILE_EXTENSIONS = (
+        '.txt', '.md', '.markdown', '.rst', '.log', '.csv', '.tsv',
+        '.json', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf',
+        '.xml', '.html', '.htm', '.css', '.scss', '.js', '.ts', '.jsx',
+        '.tsx', '.py', '.rb', '.php', '.pl', '.lua', '.sql', '.sh',
+        '.bash', '.zsh', '.ps1', '.bat', '.cmd', '.c', '.h', '.cpp',
+        '.hpp', '.cc', '.cs', '.java', '.kt', '.go', '.rs', '.swift',
+        '.srt', '.vtt', '.tex', '.diff', '.patch',
+    )
+    MAX_TEXT_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
 
     def init_main_controls(self, main_window):
         self.main_window = main_window
@@ -41,6 +56,50 @@ class MainControlsMixin:
             self.control_target.on_context_menu)
         self.setAcceptDrops(True)
         self.movewin_active = False
+        # Hover events (video controls, link ports) need mouse tracking
+        if hasattr(self, 'viewport'):
+            self.viewport().setMouseTracking(True)
+
+    @classmethod
+    def is_text_file(cls, path):
+        """Whether the given file should be inserted as a text item."""
+
+        if os.path.splitext(path)[1].lower() not in cls.TEXT_FILE_EXTENSIONS:
+            return False
+        try:
+            return os.path.getsize(path) <= cls.MAX_TEXT_FILE_SIZE
+        except OSError:
+            return False
+
+    @staticmethod
+    def read_text_file(path):
+        try:
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                return f.read().strip()
+        except OSError as e:
+            logger.info(f'Could not read text file {path}: {e}')
+            return ''
+
+    @staticmethod
+    def dropped_text(mimedata):
+        """The text contained in the mimedata (plain text or HTML)."""
+
+        text = (mimedata.text() or '').strip()
+        if text:
+            return text
+        if mimedata.hasHtml():
+            doc = QtGui.QTextDocument()
+            doc.setHtml(mimedata.html())
+            return doc.toPlainText().strip()
+        return ''
+
+    def can_accept_drop(self, mimedata):
+        """Whether anything in the mimedata can be inserted."""
+
+        return bool(mimedata.hasUrls()
+                    or mimedata.hasImage()
+                    or mimedata.hasText()
+                    or mimedata.hasHtml())
 
     def on_action_movewin_mode(self):
         if self.movewin_active:
@@ -75,41 +134,101 @@ class MainControlsMixin:
     def dragEnterEvent(self, event):
         mimedata = event.mimeData()
         logger.debug(f'Drag enter event: {mimedata.formats()}')
-        if mimedata.hasUrls():
-            event.acceptProposedAction()
-        elif mimedata.hasImage():
+        if self.can_accept_drop(mimedata):
             event.acceptProposedAction()
         else:
-            msg = 'Attempted drop not an image or image too big'
-            logger.info(msg)
-            widgets.BeeNotification(self.control_target, msg)
+            logger.info(f'Drop not supported: {mimedata.formats()}')
 
     def dragMoveEvent(self, event):
-        event.acceptProposedAction()
+        if self.can_accept_drop(event.mimeData()):
+            event.acceptProposedAction()
 
     def dropEvent(self, event):
         mimedata = event.mimeData()
-        logger.debug(f'Handling file drop: {mimedata.formats()}')
+        logger.debug(f'Handling drop: {mimedata.formats()}')
         pos = QtCore.QPoint(round(event.position().x()),
                             round(event.position().y()))
+        target = self.control_target
+
         if mimedata.hasUrls():
-            logger.debug(f'Found dropped urls: {mimedata.urls()}')
-            if not self.control_target.scene.items():
-                # Check if we have a bee file we can open directly
-                path = mimedata.urls()[0]
-                if (path.isLocalFile()
-                        and fileio.is_bee_file(path.toLocalFile())):
-                    self.control_target.open_from_file(path.toLocalFile())
-                    return
-            self.control_target.do_insert_images(mimedata.urls(), pos)
+            handled = self._drop_urls(mimedata.urls(), pos)
         elif mimedata.hasImage():
-            img = QtGui.QImage(mimedata.imageData())
-            item = BeePixmapItem(img)
-            pos = self.control_target.mapToScene(pos)
-            self.control_target.undo_stack.push(
-                commands.InsertItems(self.control_target.scene, [item], pos))
+            handled = self._drop_image(mimedata, pos)
         else:
-            logger.info('Drop not an image')
+            handled = False
+
+        if not handled:
+            text = self.dropped_text(mimedata)
+            if text:
+                target.do_insert_text(text, pos)
+                handled = True
+
+        if not handled:
+            logger.info('Nothing could be inserted from the drop')
+            widgets.BeeNotification(
+                target,
+                tr('Nothing could be inserted from the dropped data'))
+
+    def _drop_image(self, mimedata, pos):
+        img = QtGui.QImage(mimedata.imageData())
+        if img.isNull():
+            return False
+        item = BeePixmapItem(img)
+        self.control_target.undo_stack.push(
+            commands.InsertItems(self.control_target.scene, [item],
+                                 self.control_target.mapToScene(pos)))
+        return True
+
+    def _drop_urls(self, urls, pos):
+        """Handles dropped files and links.
+
+        * ``.bee`` files open a scene (when it is empty)
+        * images and videos are inserted as media items
+        * text-like files are inserted as text items
+        * remote links are inserted as text items
+        """
+
+        target = self.control_target
+        logger.debug(f'Found dropped urls: {urls}')
+        local_urls = [u for u in urls if u.isLocalFile()]
+        remote_urls = [u for u in urls if not u.isLocalFile()]
+
+        bee_urls = [u for u in local_urls
+                    if fileio.is_bee_file(u.toLocalFile())]
+        if bee_urls and not target.scene.items():
+            target.open_from_file(bee_urls[0].toLocalFile())
+            return True
+
+        text_urls = [u for u in local_urls
+                     if self.is_text_file(u.toLocalFile())]
+        media_urls = [u for u in local_urls if u not in text_urls]
+        media_urls += [u for u in remote_urls
+                       if media_type(u) in ('image', 'video')]
+
+        handled = False
+        if media_urls:
+            target.do_insert_images(media_urls, pos)
+            handled = True
+
+        scale = target.get_scale()
+        offset = 0
+        for url in text_urls:
+            text = self.read_text_file(url.toLocalFile())
+            if text:
+                target.do_insert_text(
+                    text, pos + QtCore.QPoint(offset, offset))
+                offset += int(24 / max(scale, 0.01))
+                handled = True
+
+        # Links dragged from a browser become text items
+        for url in remote_urls:
+            if url in media_urls:
+                continue
+            link = url.toString()
+            if link:
+                target.do_insert_text(link, pos)
+                handled = True
+        return handled
 
     def mousePressEventMainControls(self, event):
         if self.movewin_active:

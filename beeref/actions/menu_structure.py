@@ -71,6 +71,7 @@ menu_structure = [
         'menu': '&Insert',
         'items': [
             'insert_images',
+            'insert_video',
             'insert_text',
         ],
     },
@@ -113,6 +114,38 @@ menu_structure = [
             MENU_SEPARATOR,
             'show_color_gamut',
             'sample_color',
+        ],
+    },
+    {
+        'menu': '&Video',
+        'items': [
+            'play_video',
+        ],
+    },
+    {
+        'menu': '&Tools',
+        'items': [
+            'toggle_draw',
+            'pen_color',
+            'pen_width_thin',
+            'pen_width_normal',
+            'pen_width_thick',
+            'pen_width_huge',
+            MENU_SEPARATOR,
+            'link_items',
+            'unlink_items',
+        ],
+    },
+    {
+        'menu': '&Collaborate',
+        'items': [
+            'collab_host',
+            'collab_join',
+            MENU_SEPARATOR,
+            'collab_code',
+            'collab_approval',
+            MENU_SEPARATOR,
+            'collab_leave',
         ],
     },
     {

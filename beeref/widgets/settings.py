@@ -16,11 +16,12 @@
 from functools import partial
 import logging
 
-from PyQt6 import QtWidgets
+from PyQt6 import QtCore, QtWidgets
 from PyQt6.QtCore import Qt
 
-from beeref import constants
+from beeref import constants, i18n
 from beeref.config import BeeSettings, settings_events
+from beeref.i18n import tr
 
 
 logger = logging.getLogger(__name__)
@@ -40,12 +41,12 @@ class GroupBase(QtWidgets.QGroupBox):
         settings_events.restore_defaults.connect(self.on_restore_defaults)
 
         if self.HELPTEXT:
-            helptxt = QtWidgets.QLabel(self.HELPTEXT)
+            helptxt = QtWidgets.QLabel(tr(self.HELPTEXT))
             helptxt.setWordWrap(True)
             self.layout.addWidget(helptxt)
 
     def update_title(self):
-        title = [self.TITLE]
+        title = [tr(self.TITLE)]
         if self.settings.value_changed(self.KEY):
             title.append(constants.CHANGED_SYMBOL)
         self.setTitle(' '.join(title))
@@ -80,9 +81,9 @@ class RadioGroup(GroupBase):
         self.ignore_value_changed = True
         self.buttons = {}
         for (value, label, helptext) in self.OPTIONS:
-            btn = QtWidgets.QRadioButton(label)
+            btn = QtWidgets.QRadioButton(tr(label))
             self.buttons[value] = btn
-            btn.setToolTip(helptext)
+            btn.setToolTip(tr(helptext))
             btn.toggled.connect(partial(self.on_value_changed, value=value))
             if value == self.settings.valueOrDefault(self.KEY):
                 btn.setChecked(True)
@@ -157,7 +158,9 @@ class ImageStorageFormatWidget(RadioGroup):
           ' everything else as jpg')),
         ('png', 'Always PNG', 'Lossless, but large bee file'),
         ('jpg', 'Always JPG',
-         'Small bee file, but lossy and no transparency support'))
+         'Small bee file, but lossy and no transparency support'),
+        ('webp', 'Always WebP',
+         'Lossless or lossy, supports transparency, modern format'))
 
 
 class ArrangeGapWidget(IntegerGroup):
@@ -186,18 +189,43 @@ class ConfirmCloseUnsavedWidget(SingleCheckboxGroup):
     KEY = 'Save/confirm_close_unsaved'
 
 
+class LanguageWidget(RadioGroup):
+    TITLE = 'Language:'
+    HELPTEXT = 'The language of the user interface.'
+    KEY = 'General/language'
+    OPTIONS = tuple(
+        (code, name, name) for code, name in i18n.LANGUAGES.items())
+
+
 class SettingsDialog(QtWidgets.QDialog):
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle(f'{constants.APPNAME} Settings')
+        self.layout = QtWidgets.QVBoxLayout()
+        self.setLayout(self.layout)
+        self.build()
+        i18n.language_events.changed.connect(self.on_language_changed)
+        self.show()
+
+    def build(self):
+        """(Re)builds the dialog, so it can follow language changes."""
+
+        while self.layout.count():
+            item = self.layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self.setWindowTitle(tr('{app} Settings', app=constants.APPNAME))
+
         tabs = QtWidgets.QTabWidget()
 
         # Miscellaneous
         misc = QtWidgets.QWidget()
         misc_layout = QtWidgets.QGridLayout()
         misc.setLayout(misc_layout)
-        misc_layout.addWidget(ConfirmCloseUnsavedWidget(), 0, 0)
-        tabs.addTab(misc, '&Miscellaneous')
+        misc_layout.addWidget(LanguageWidget(), 0, 0)
+        misc_layout.addWidget(ConfirmCloseUnsavedWidget(), 1, 0)
+        tabs.addTab(misc, tr('&Miscellaneous'))
 
         # Images & Items
         items = QtWidgets.QWidget()
@@ -207,30 +235,33 @@ class SettingsDialog(QtWidgets.QDialog):
         items_layout.addWidget(AllocationLimitWidget(), 0, 1)
         items_layout.addWidget(ArrangeGapWidget(), 1, 0)
         items_layout.addWidget(ArrangeDefaultWidget(), 1, 1)
-        tabs.addTab(items, '&Images && Items')
+        tabs.addTab(items, tr('&Images && Items'))
 
-        layout = QtWidgets.QVBoxLayout()
-        self.setLayout(layout)
-        layout.addWidget(tabs)
+        self.layout.addWidget(tabs)
 
         # Bottom row of buttons
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
-        reset_btn = QtWidgets.QPushButton('&Restore Defaults')
+        reset_btn = QtWidgets.QPushButton(tr('&Restore Defaults'))
         reset_btn.setAutoDefault(False)
         reset_btn.clicked.connect(self.on_restore_defaults)
         buttons.addButton(reset_btn,
                           QtWidgets.QDialogButtonBox.ButtonRole.ActionRole)
 
-        layout.addWidget(buttons)
-        self.show()
+        self.layout.addWidget(buttons)
+
+    def on_language_changed(self, code):
+        # Deferred, so the widget that triggered the change is not deleted
+        # while its signal is still being handled
+        QtCore.QTimer.singleShot(0, self.build)
 
     def on_restore_defaults(self, *args, **kwargs):
         reply = QtWidgets.QMessageBox.question(
             self,
-            'Restore defaults?',
-            'Do you want to restore all settings to their default values?')
+            tr('Restore defaults?'),
+            tr('Do you want to restore all settings to their default '
+               'values?'))
 
         if reply == QtWidgets.QMessageBox.StandardButton.Yes:
             BeeSettings().restore_defaults()

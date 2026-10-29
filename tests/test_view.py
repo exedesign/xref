@@ -1634,6 +1634,7 @@ def test_drop_when_url(insert_mock, view, imgfilename3x3):
 
 @patch('beeref.view.BeeGraphicsView.open_from_file')
 def test_drop_when_url_beefile_and_scene_empty(open_mock, view):
+    view.scene.clear()
     root = os.path.dirname(__file__)
     filename = os.path.join(root, 'assets', 'test1item.bee')
     url = QtCore.QUrl.fromLocalFile(filename)
@@ -1644,7 +1645,8 @@ def test_drop_when_url_beefile_and_scene_empty(open_mock, view):
     event.position.return_value = QtCore.QPointF(10.0, 20.0)
 
     view.dropEvent(event)
-    open_mock.assert_called_once_with(filename)
+    # toLocalFile() normalises the separator for the platform
+    open_mock.assert_called_once_with(url.toLocalFile())
 
 
 @patch('beeref.view.BeeGraphicsView.do_insert_images')
@@ -1675,3 +1677,159 @@ def test_drop_when_img(view, imgfilename3x3):
     view.dropEvent(event)
     assert len(view.scene.items()) == 1
     assert view.scene.items()[0].isSelected() is True
+
+# -- Dropping text, HTML, text files and links ----------------------------
+
+def test_drag_enter_when_text(view):
+    mimedata = QtCore.QMimeData()
+    mimedata.setText('hello')
+    event = MagicMock()
+    event.mimeData.return_value = mimedata
+
+    view.dragEnterEvent(event)
+    event.acceptProposedAction.assert_called_once()
+
+
+def text_items(view):
+    return [i for i in view.scene.items() if i.TYPE == 'text']
+
+
+def test_drop_when_text_creates_text_item(view):
+    mimedata = QtCore.QMimeData()
+    mimedata.setText('Hello dropped world')
+    event = MagicMock()
+    event.mimeData.return_value = mimedata
+    event.position.return_value = QtCore.QPointF(10.0, 20.0)
+
+    view.dropEvent(event)
+
+    items = text_items(view)
+    assert len(items) == 1
+    assert items[0].toPlainText() == 'Hello dropped world'
+    assert items[0].isSelected() is True
+    # Inserting is undoable
+    view.undo_stack.undo()
+    assert text_items(view) == []
+
+
+def test_drop_when_html_creates_text_item(view):
+    mimedata = QtCore.QMimeData()
+    mimedata.setHtml('<p>Hello <b>bold</b></p><p>second line</p>')
+    event = MagicMock()
+    event.mimeData.return_value = mimedata
+    event.position.return_value = QtCore.QPointF(10.0, 20.0)
+
+    view.dropEvent(event)
+
+    items = text_items(view)
+    assert len(items) == 1
+    text = items[0].toPlainText()
+    assert 'bold' in text
+    assert 'second line' in text
+
+
+def test_drop_when_empty_text_does_nothing(view):
+    mimedata = QtCore.QMimeData()
+    mimedata.setText('   \n  ')
+    event = MagicMock()
+    event.mimeData.return_value = mimedata
+    event.position.return_value = QtCore.QPointF(10.0, 20.0)
+
+    view.dropEvent(event)
+    assert text_items(view) == []
+
+
+def test_drop_when_text_file(view, tmp_path):
+    path = tmp_path / 'notes.md'
+    path.write_text('# Title\n\nSome notes', encoding='utf-8')
+    url = QtCore.QUrl.fromLocalFile(str(path))
+    mimedata = QtCore.QMimeData()
+    mimedata.setUrls([url])
+    event = MagicMock()
+    event.mimeData.return_value = mimedata
+    event.position.return_value = QtCore.QPointF(10.0, 20.0)
+
+    view.dropEvent(event)
+
+    items = text_items(view)
+    assert len(items) == 1
+    assert items[0].toPlainText() == '# Title\n\nSome notes'
+
+
+def test_drop_when_multiple_text_files_offsets_items(view, tmp_path):
+    urls = []
+    for i in range(3):
+        path = tmp_path / f'note{i}.txt'
+        path.write_text(f'note {i}', encoding='utf-8')
+        urls.append(QtCore.QUrl.fromLocalFile(str(path)))
+    mimedata = QtCore.QMimeData()
+    mimedata.setUrls(urls)
+    event = MagicMock()
+    event.mimeData.return_value = mimedata
+    event.position.return_value = QtCore.QPointF(10.0, 20.0)
+
+    view.dropEvent(event)
+
+    items = text_items(view)
+    assert len(items) == 3
+    assert len({(i.pos().x(), i.pos().y()) for i in items}) == 3
+
+
+@patch('beeref.view.BeeGraphicsView.do_insert_images')
+def test_drop_when_remote_link_inserts_text(insert_mock, view):
+    url = QtCore.QUrl('https://example.com/some/page')
+    mimedata = QtCore.QMimeData()
+    mimedata.setUrls([url])
+    event = MagicMock()
+    event.mimeData.return_value = mimedata
+    event.position.return_value = QtCore.QPointF(10.0, 20.0)
+
+    view.dropEvent(event)
+
+    insert_mock.assert_not_called()
+    items = text_items(view)
+    assert len(items) == 1
+    assert items[0].toPlainText() == 'https://example.com/some/page'
+
+
+@patch('beeref.view.BeeGraphicsView.do_insert_images')
+def test_drop_when_remote_image_url_inserts_media(insert_mock, view):
+    url = QtCore.QUrl('https://example.com/picture.png')
+    mimedata = QtCore.QMimeData()
+    mimedata.setUrls([url])
+    event = MagicMock()
+    event.mimeData.return_value = mimedata
+    event.position.return_value = QtCore.QPointF(10.0, 20.0)
+
+    view.dropEvent(event)
+    insert_mock.assert_called_once_with([url], QtCore.QPoint(10, 20))
+
+
+@patch('beeref.main_controls.widgets.BeeNotification')
+def test_drop_when_unsupported_shows_notification(notify_mock, view):
+    mimedata = QtCore.QMimeData()
+    mimedata.setData('application/x-unknown', b'123')
+    event = MagicMock()
+    event.mimeData.return_value = mimedata
+    event.position.return_value = QtCore.QPointF(10.0, 20.0)
+
+    view.dropEvent(event)
+    notify_mock.assert_called_once()
+
+
+def test_long_dropped_text_is_wrapped_and_saved(view):
+    mimedata = QtCore.QMimeData()
+    mimedata.setText('word ' * 80)
+    event = MagicMock()
+    event.mimeData.return_value = mimedata
+    event.position.return_value = QtCore.QPointF(10.0, 20.0)
+
+    view.dropEvent(event)
+
+    item = text_items(view)[0]
+    assert item.textWidth() > 0
+    data = item.get_extra_save_data()
+    assert data['text_width'] == item.textWidth()
+    copy = item.__class__.create_from_data(data=data)
+    assert copy.textWidth() == item.textWidth()
+    assert copy.toPlainText() == item.toPlainText()

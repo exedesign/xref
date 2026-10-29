@@ -18,16 +18,18 @@ import logging
 import os
 import os.path
 
-from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets, sip
 from PyQt6.QtCore import Qt
 
 from beeref.actions import ActionsMixin, actions
+from beeref import collab, i18n
 from beeref import commands
 from beeref.config import CommandlineArgs, BeeSettings, KeyboardSettings
 from beeref import constants
 from beeref import fileio
 from beeref.fileio.errors import IMG_LOADING_ERROR_MSG
 from beeref.fileio.export import exporter_registry, ImagesToDirectoryExporter
+from beeref.i18n import tr
 from beeref import widgets
 from beeref.items import BeePixmapItem, BeeTextItem
 from beeref.main_controls import MainControlsMixin
@@ -37,6 +39,56 @@ from beeref.utils import get_file_extension_from_format, qcolor_to_hex
 
 commandline_args = CommandlineArgs()
 logger = logging.getLogger(__name__)
+
+
+class AltDoubleTapFilter(QtCore.QObject):
+    """Detects two quick presses and releases of the Alt key on its own
+    (i.e. not used as a modifier for another key or mouse button)."""
+
+    INTERVAL_MS = 450
+
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+        self.last_tap = None
+        self.alt_down = False
+        self.alt_used_as_modifier = False
+        self.timer = QtCore.QElapsedTimer()
+        self.timer.start()
+
+    def is_alt(self, event):
+        return event.key() in (Qt.Key.Key_Alt, Qt.Key.Key_AltGr)
+
+    def eventFilter(self, obj, event):
+        etype = event.type()
+        if etype == QtCore.QEvent.Type.KeyPress:
+            if self.is_alt(event):
+                if not event.isAutoRepeat() and not self.alt_down:
+                    self.alt_down = True
+                    self.alt_used_as_modifier = False
+            elif self.alt_down:
+                self.alt_used_as_modifier = True
+        elif etype == QtCore.QEvent.Type.KeyRelease:
+            if (self.is_alt(event) and not event.isAutoRepeat()
+                    and self.alt_down):
+                self.alt_down = False
+                if self.alt_used_as_modifier:
+                    self.last_tap = None
+                    return False
+                now = self.timer.elapsed()
+                if (self.last_tap is not None
+                        and now - self.last_tap <= self.INTERVAL_MS):
+                    self.last_tap = None
+                    self.callback()
+                    # Don't let the menu bar grab focus on this release
+                    return True
+                self.last_tap = now
+        elif etype in (QtCore.QEvent.Type.MouseButtonPress,
+                       QtCore.QEvent.Type.Wheel):
+            if self.alt_down:
+                self.alt_used_as_modifier = True
+            self.last_tap = None
+        return False
 
 
 class BeeGraphicsView(MainControlsMixin,
@@ -58,6 +110,11 @@ class BeeGraphicsView(MainControlsMixin,
         self.setBackgroundBrush(
             QtGui.QBrush(QtGui.QColor(*constants.COLORS['Scene:Canvas'])))
         self.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        # Links are drawn in the foreground across large areas, so the
+        # default minimal updates would leave trails behind moving items
+        self.setViewportUpdateMode(
+            QtWidgets.QGraphicsView.ViewportUpdateMode
+            .BoundingRectViewportUpdate)
         self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
 
         self.undo_stack = QtGui.QUndoStack(self)
@@ -75,12 +132,36 @@ class BeeGraphicsView(MainControlsMixin,
         self.scene.selectionChanged.connect(self.on_selection_changed)
         self.scene.cursor_changed.connect(self.on_cursor_changed)
         self.scene.cursor_cleared.connect(self.on_cursor_cleared)
+        self.scene.link_created.connect(self.on_link_created)
+        self.scene.links_removed.connect(self.on_links_removed)
+        self.scene.links_changed.connect(self.on_links_changed)
+
+        # State for dragging media out of the window (copy to another app)
+        self._drag_export_items = []
+        self._drag_export_positions = []
+        self._drag_export_start = None
         self.setScene(self.scene)
+
+        i18n.language_events.changed.connect(self.on_language_changed)
+
+        # Shared board session (see Collaborate menu)
+        self.collab = collab.CollabSession(
+            self.scene, name=self.get_collab_name(), parent=self)
+        self.collab.status_changed.connect(self.on_collab_status)
+        self.collab.peers_changed.connect(self.on_collab_peers_changed)
+        self.collab.board_replaced.connect(self.on_collab_board_replaced)
 
         # Context menu and actions
         self.build_menu_and_actions()
         self.control_target = self
         self.init_main_controls(main_window=parent)
+
+        # Double-tapping Alt toggles pen mode. Alt is consumed by the
+        # window system/menu bar before it reaches keyPressEvent, so we
+        # watch it application-wide.
+        self.alt_tap_filter = AltDoubleTapFilter(self.on_alt_double_tap)
+        QtWidgets.QApplication.instance().installEventFilter(
+            self.alt_tap_filter)
 
         # Load files given via command line
         if commandline_args.filenames:
@@ -124,9 +205,14 @@ class BeeGraphicsView(MainControlsMixin,
         if clean and not self.filename:
             title = constants.APPNAME
         else:
-            name = os.path.basename(self.filename or '[Untitled]')
+            name = (os.path.basename(self.filename)
+                    if self.filename else f'[{tr("Untitled")}]')
             clean = '' if clean else '*'
             title = f'{name}{clean} - {constants.APPNAME}'
+        session = getattr(self, 'collab', None)
+        if session is not None and session.is_active():
+            peers = session.peer_count()
+            title = f'{title}  ·  {tr("shared ({count})", count=peers)}'
         self.parent.setWindowTitle(title)
 
     def on_scene_changed(self, region):
@@ -210,7 +296,7 @@ class BeeGraphicsView(MainControlsMixin,
         if confirm and not self.undo_stack.isClean():
             answer = QtWidgets.QMessageBox.question(
                 self,
-                'Discard unsaved changes?',
+                tr('Discard unsaved changes?'),
                 msg,
                 QtWidgets.QMessageBox.StandardButton.Yes |
                 QtWidgets.QMessageBox.StandardButton.Cancel)
@@ -220,8 +306,8 @@ class BeeGraphicsView(MainControlsMixin,
 
     def on_action_new_scene(self):
         confirm = self.get_confirmation_unsaved_changes(
-            'There are unsaved changes. '
-            'Are you sure you want to open a new scene?')
+            tr('There are unsaved changes. '
+               'Are you sure you want to open a new scene?'))
         if confirm:
             self.clear_scene()
 
@@ -294,6 +380,10 @@ class BeeGraphicsView(MainControlsMixin,
     def on_action_delete_items(self):
         logger.debug('Deleting items...')
         self.cancel_active_modes()
+        if self.scene.selected_link is not None:
+            # A clicked link can be deleted on its own (items stay)
+            self.scene.delete_selected_link()
+            return
         self.undo_stack.push(
             commands.DeleteItems(
                 self.scene, self.scene.selectedItems(user_only=True)))
@@ -408,9 +498,10 @@ class BeeGraphicsView(MainControlsMixin,
         if errors:
             QtWidgets.QMessageBox.warning(
                 self,
-                'Problem loading file',
-                ('<p>Problem loading file %s</p>'
-                 '<p>Not accessible or not a proper bee file</p>') % filename)
+                tr('Problem loading file'),
+                tr('<p>Problem loading file {filename}</p>'
+                   '<p>Not accessible or not a proper bee file</p>',
+                   filename=filename))
         else:
             self.filename = filename
             self.scene.add_queued_items()
@@ -418,8 +509,8 @@ class BeeGraphicsView(MainControlsMixin,
 
     def on_action_open_recent_file(self, filename):
         confirm = self.get_confirmation_unsaved_changes(
-            'There are unsaved changes. '
-            'Are you sure you want to open a new scene?')
+            tr('There are unsaved changes. '
+               'Are you sure you want to open a new scene?'))
         if confirm:
             self.open_from_file(filename)
 
@@ -438,15 +529,15 @@ class BeeGraphicsView(MainControlsMixin,
 
     def on_action_open(self):
         confirm = self.get_confirmation_unsaved_changes(
-            'There are unsaved changes. '
-            'Are you sure you want to open a new scene?')
+            tr('There are unsaved changes. '
+               'Are you sure you want to open a new scene?'))
         if not confirm:
             return
 
         self.cancel_active_modes()
         filename, f = QtWidgets.QFileDialog.getOpenFileName(
             parent=self,
-            caption='Open file',
+            caption=tr('Open file'),
             filter=f'{constants.APPNAME} File (*.bee)')
         if filename:
             filename = os.path.normpath(filename)
@@ -457,9 +548,10 @@ class BeeGraphicsView(MainControlsMixin,
         if errors:
             QtWidgets.QMessageBox.warning(
                 self,
-                'Problem saving file',
-                ('<p>Problem saving file %s</p>'
-                 '<p>File/directory not accessible</p>') % filename)
+                tr('Problem saving file'),
+                tr('<p>Problem saving file {filename}</p>'
+                   '<p>File/directory not accessible</p>',
+                   filename=filename))
         else:
             self.filename = filename
             self.undo_stack.setClean()
@@ -481,7 +573,7 @@ class BeeGraphicsView(MainControlsMixin,
         directory = os.path.dirname(self.filename) if self.filename else None
         filename, f = QtWidgets.QFileDialog.getSaveFileName(
             parent=self,
-            caption='Save file',
+            caption=tr('Save file'),
             directory=directory,
             filter=f'{constants.APPNAME} File (*.bee)')
         if filename:
@@ -498,11 +590,12 @@ class BeeGraphicsView(MainControlsMixin,
         directory = os.path.dirname(self.filename) if self.filename else None
         filename, formatstr = QtWidgets.QFileDialog.getSaveFileName(
             parent=self,
-            caption='Export Scene to Image',
+            caption=tr('Export Scene to Image'),
             directory=directory,
-            filter=';;'.join(('Image Files (*.png *.jpg *.jpeg *.svg)',
+            filter=';;'.join(('Image Files (*.png *.jpg *.jpeg *.webp *.svg)',
                               'PNG (*.png)',
                               'JPEG (*.jpg *.jpeg)',
+                              'WebP (*.webp)',
                               'SVG (*.svg)')))
 
         if not filename:
@@ -532,14 +625,15 @@ class BeeGraphicsView(MainControlsMixin,
             err_msg = '</br>'.join(str(errors))
             QtWidgets.QMessageBox.warning(
                 self,
-                'Problem writing file',
-                f'<p>Problem writing file {filename}</p><p>{err_msg}</p>')
+                tr('Problem writing file'),
+                tr('<p>Problem writing file {filename}</p>'
+                   '<p>{error}</p>', filename=filename, error=err_msg))
 
     def on_action_export_images(self):
         directory = os.path.dirname(self.filename) if self.filename else None
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             parent=self,
-            caption='Export Images',
+            caption=tr('Export Images'),
             directory=directory)
 
         if not directory:
@@ -570,7 +664,7 @@ class BeeGraphicsView(MainControlsMixin,
 
     def on_action_quit(self):
         confirm = self.get_confirmation_unsaved_changes(
-            'There are unsaved changes. Are you sure you want to quit?')
+            tr('There are unsaved changes. Are you sure you want to quit?'))
         if confirm:
             logger.info('User quit. Exiting...')
             self.app.quit()
@@ -587,7 +681,7 @@ class BeeGraphicsView(MainControlsMixin,
     def on_action_about(self):
         QtWidgets.QMessageBox.about(
             self,
-            f'About {constants.APPNAME}',
+            tr('About {app}', app=constants.APPNAME),
             (f'<h2>{constants.APPNAME} {constants.VERSION}</h2>'
              f'<p>{constants.APPNAME_FULL}</p>'
              f'<p>{constants.COPYRIGHT}</p>'
@@ -614,8 +708,8 @@ class BeeGraphicsView(MainControlsMixin,
             msg = f'{num} image(s) could not be opened.<br/>'
             QtWidgets.QMessageBox.warning(
                 self,
-                'Problem loading images',
-                msg + IMG_LOADING_ERROR_MSG + errornames)
+                tr('Problem loading images'),
+                msg + tr(IMG_LOADING_ERROR_MSG) + errornames)
         self.scene.add_queued_items()
         self.scene.arrange_default()
         self.undo_stack.endMacro()
@@ -628,7 +722,7 @@ class BeeGraphicsView(MainControlsMixin,
         self.scene.deselect_all_items()
         self.undo_stack.beginMacro('Insert Images')
         self.worker = fileio.ThreadedIO(
-            fileio.load_images,
+            fileio.load_media_items,
             filenames,
             self.mapToScene(pos),
             self.scene)
@@ -637,10 +731,14 @@ class BeeGraphicsView(MainControlsMixin,
             partial(self.on_insert_images_finished,
                     not self.scene.items()))
         self.progress = widgets.BeeProgressDialog(
-            'Loading images',
+            'Loading media',
             worker=self.worker,
             parent=self)
         self.worker.start()
+
+    def get_supported_video_formats(self):
+        from beeref.fileio.media import VIDEO_EXTENSIONS
+        return ' '.join(VIDEO_EXTENSIONS)
 
     def on_action_insert_images(self):
         self.cancel_active_modes()
@@ -648,8 +746,17 @@ class BeeGraphicsView(MainControlsMixin,
         logger.debug(f'Supported image types for reading: {formats}')
         filenames, f = QtWidgets.QFileDialog.getOpenFileNames(
             parent=self,
-            caption='Select one or more images to open',
+            caption=tr('Select one or more images to open'),
             filter=f'Images ({formats})')
+        self.do_insert_images(filenames)
+
+    def on_action_insert_video(self):
+        self.cancel_active_modes()
+        formats = self.get_supported_video_formats()
+        filenames, f = QtWidgets.QFileDialog.getOpenFileNames(
+            parent=self,
+            caption=tr('Select one or more videos to open'),
+            filter=f'Videos ({formats})')
         self.do_insert_images(filenames)
 
     def on_action_insert_text(self):
@@ -658,6 +765,504 @@ class BeeGraphicsView(MainControlsMixin,
         pos = self.mapToScene(self.mapFromGlobal(self.cursor().pos()))
         item.setScale(1 / self.get_scale())
         self.undo_stack.push(commands.InsertItems(self.scene, [item], pos))
+
+    def do_insert_text(self, text, pos=None):
+        """Inserts a text item at the given view position.
+
+        Used by the text tool and when text, text files or links are
+        dropped onto the scene.
+
+        :param str text: The text to insert
+        :param QtCore.QPoint | None pos: Position in view coordinates
+        :rtype: BeeTextItem | None
+        """
+
+        text = (text or '').strip()
+        if not text:
+            return None
+        if pos is None:
+            pos = self.get_view_center()
+        self.cancel_active_modes()
+        was_empty = not self.scene.items()
+        item = BeeTextItem(text)
+        item.setScale(1 / self.get_scale())
+        if '\n' in text or len(text) > 40:
+            # Wrap longer texts so they stay readable
+            item.setTextWidth(BeeTextItem.DEFAULT_WRAP_WIDTH)
+        self.undo_stack.push(
+            commands.InsertItems(self.scene, [item], self.mapToScene(pos)))
+        if was_empty:
+            self.on_action_fit_scene()
+        return item
+
+    def on_action_play_video(self):
+        """Plays the selected video item from the position it was last
+        stopped at."""
+
+        item = next(
+            (i for i in self.scene.selectedItems(user_only=True)
+             if getattr(i, 'is_video', False)),
+            None)
+        if item is None:
+            widgets.BeeNotification(self, tr('Select a video item first'))
+            return
+        item.toggle_play()
+
+    def on_action_toggle_draw(self, checked=None):
+        """Toggles pen/draw mode (freehand notes & sketches)."""
+
+        if checked is None:
+            checked = not self.scene.draw_mode
+            self.scene.toggle_draw_mode()
+        elif checked:
+            if not self.scene.draw_mode:
+                self.scene.enter_draw_mode()
+        else:
+            if self.scene.draw_mode:
+                self.scene.exit_draw_mode()
+        # Keep the menu action's checked state in sync
+        qaction = getattr(actions.actions['toggle_draw'], 'qaction', None)
+        if qaction is not None:
+            qaction.blockSignals(True)
+            qaction.setChecked(self.scene.draw_mode)
+            qaction.blockSignals(False)
+
+    def on_action_pen_color(self):
+        """Picks the colour for the pen (applies to selected strokes)."""
+
+        current = QtGui.QColor(*self.scene.pen_color)
+        color = QtWidgets.QColorDialog.getColor(
+            current, self, 'Pen Colour')
+        if color.isValid():
+            self.scene.set_pen_color(color)
+            if self.scene.draw_mode:
+                widgets.BeeNotification(
+                    self, tr('Pen colour: {name}', name=color.name()))
+
+    def _set_pen_width(self, width):
+        self.scene.set_pen_width(width)
+        if self.scene.draw_mode:
+            widgets.BeeNotification(
+                self, tr('Brush size: {width}px', width=width))
+
+    def on_action_pen_width_thin(self):
+        self._set_pen_width(4)
+
+    def on_action_pen_width_normal(self):
+        self._set_pen_width(10)
+
+    def on_action_pen_width_thick(self):
+        self._set_pen_width(18)
+
+    def on_action_pen_width_huge(self):
+        self._set_pen_width(30)
+
+    def on_action_link_items(self):
+        """Links the two selected items (first selected = parent)."""
+
+        items = self.scene.selectedItems(user_only=True)
+        if len(items) != 2:
+            widgets.BeeNotification(
+                self, tr('Select exactly two items to link them '
+                          '(first selected becomes the parent)'))
+            return
+        if not self.scene.link_selected_items():
+            widgets.BeeNotification(
+                self, tr('These items are already linked'))
+            return
+        widgets.BeeNotification(
+            self, tr('Linked "{source}" -> "{target}"',
+                    source=self._item_label(items[0]),
+                    target=self._item_label(items[1])))
+
+    def on_action_unlink_items(self):
+        removed = self.scene.unlink_selected_items()
+        if removed:
+            widgets.BeeNotification(
+                self, tr('Removed {count} link(s)', count=removed))
+        else:
+            widgets.BeeNotification(
+                self, tr('Selected items have no links'))
+
+    @staticmethod
+    def _item_label(item):
+        name = getattr(item, 'filename', None) or getattr(item, 'text', None)
+        if not name:
+            return item.TYPE
+        return os.path.basename(str(name))[:40]
+
+    def on_link_created(self, source, target):
+        widgets.BeeNotification(
+            self, tr('Linked "{source}" -> "{target}"',
+                    source=self._item_label(source),
+                    target=self._item_label(target)))
+
+    def on_links_removed(self, count):
+        widgets.BeeNotification(
+            self, tr('Removed {count} link(s)', count=count))
+
+    def on_links_changed(self):
+        self.update_viewport_mode()
+
+    def update_viewport_mode(self):
+        """Links are painted in the scene's foreground over large areas.
+
+        With the default minimal updates, moving an item would only
+        repaint the items and leave the old link curves (and selection
+        outlines) behind as trails, so switch to full repaints while
+        links are present.
+        """
+
+        ViewMode = QtWidgets.QGraphicsView.ViewportUpdateMode
+        if sip.isdeleted(self.scene) or sip.isdeleted(self):
+            return
+        try:
+            has_links = bool(self.scene.active_links())
+        except RuntimeError:  # scene already deleted (shutdown)
+            return
+        mode = (ViewMode.FullViewportUpdate if has_links
+                else ViewMode.BoundingRectViewportUpdate)
+        if self.viewportUpdateMode() != mode:
+            logger.debug(f'Viewport update mode: {mode.name}')
+            self.setViewportUpdateMode(mode)
+        self.viewport().update()
+
+    # -- Dragging media out of the window -----------------------------------
+
+    def _prepare_drag_export(self, event):
+        """Remembers the items a drag starts on, so that dragging them out
+        of the window can export (copy) them."""
+
+        self._drag_export_items = []
+        self._drag_export_positions = []
+        self._drag_export_start = None
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        mods = event.modifiers()
+        if (isinstance(mods, Qt.KeyboardModifier)
+                and mods & Qt.KeyboardModifier.ShiftModifier):
+            # Shift+drag creates a link; leaving the window must not
+            # start an export drag instead
+            return
+        if self.scene.active_mode == self.scene.LINK_MODE:
+            return
+        pos = event.position()
+        if not isinstance(pos, QtCore.QPointF):
+            return
+        scene_pos = self.mapToScene(pos.toPoint())
+        item = self.scene.itemAt(scene_pos, self.transform())
+        if item is None or getattr(item, 'is_draw', False):
+            return
+        if getattr(item, 'is_video', False) and item.is_control_hit(scene_pos):
+            # Interacting with the player controls, not dragging the item
+            return
+        items = [i for i in self.scene.selectedItems(user_only=True)
+                 if not getattr(i, 'is_draw', False)]
+        if item not in items:
+            return
+        self._drag_export_items = items
+        self._drag_export_positions = [i.pos() for i in items]
+        self._drag_export_start = event.position()
+
+    def _maybe_start_export_drag(self, event):
+        """Starts an OS drag when a selected item is dragged out of the
+        viewport (copying the media somewhere else)."""
+
+        if not self._drag_export_items:
+            return False
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return False
+        if self._drag_export_start is not None:
+            moved = event.position() - self._drag_export_start
+            if moved.manhattanLength() < 20:
+                return False
+        margin = 10
+        inside = self.viewport().rect().adjusted(
+            -margin, -margin, margin, margin)
+        if inside.contains(event.position().toPoint()):
+            return False
+        self._start_export_drag()
+        return True
+
+    def _start_export_drag(self):
+        items = self._drag_export_items
+        positions = self._drag_export_positions
+        self._drag_export_items = []
+        self._drag_export_positions = []
+        self._drag_export_start = None
+
+        mime = self.build_export_mime_data(items)
+        if mime is None:
+            return
+        # Dragging out copies the media, so the originals stay in place
+        for item, pos in zip(items, positions):
+            item.setPos(pos)
+        self.scene.active_mode = None
+        self.scene.update()
+
+        drag = QtGui.QDrag(self.viewport())
+        drag.setMimeData(mime)
+        pixmap = self._export_drag_pixmap(items)
+        if pixmap is not None and not pixmap.isNull():
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(QtCore.QPoint(pixmap.width() // 2,
+                                          pixmap.height() // 2))
+        logger.info(f'Dragging {len(items)} item(s) out of the window')
+        drag.exec(Qt.DropAction.CopyAction)
+
+    @staticmethod
+    def build_export_mime_data(items):
+        """Builds the mime data used to drag items to other applications."""
+
+        urls = []
+        texts = []
+        image = None
+        for item in items:
+            if getattr(item, 'is_video', False):
+                if item.has_source_file():
+                    urls.append(QtCore.QUrl.fromLocalFile(item.video_path))
+                continue
+            if getattr(item, 'TYPE', None) == 'text':
+                text = item.toPlainText().strip()
+                if text:
+                    texts.append(text)
+                continue
+            filename = getattr(item, 'filename', None)
+            if filename and os.path.isfile(filename):
+                urls.append(QtCore.QUrl.fromLocalFile(filename))
+            elif image is None and hasattr(item, 'pixmap'):
+                image = item.pixmap().toImage()
+        has_image = image is not None and not image.isNull()
+        if not urls and not texts and not has_image:
+            return None
+        mime = QtCore.QMimeData()
+        if urls:
+            mime.setUrls(urls)
+        if texts:
+            mime.setText('\n'.join(texts))
+        if has_image:
+            mime.setImageData(image)
+        return mime
+
+    def _export_drag_pixmap(self, items):
+        """A small preview shown next to the cursor while dragging out."""
+
+        rect = self.scene.itemsBoundingRect(items=items)
+        if rect.isEmpty() or rect.width() <= 0 or rect.height() <= 0:
+            return None
+        limit = 200
+        scale = min(1.0, limit / max(rect.width(), rect.height()))
+        size = QtCore.QSize(max(1, round(rect.width() * scale)),
+                            max(1, round(rect.height() * scale)))
+        image = QtGui.QImage(
+            size, QtGui.QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(Qt.GlobalColor.transparent)
+        selected = self.scene.selectedItems()
+        painter = QtGui.QPainter(image)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        try:
+            for item in selected:
+                item.setSelected(False)
+            self.scene.render(
+                painter,
+                QtCore.QRectF(QtCore.QPointF(0, 0),
+                              QtCore.QPointF(size.width(),
+                                             size.height())),
+                rect)
+        finally:
+            painter.end()
+            for item in selected:
+                item.setSelected(True)
+        return QtGui.QPixmap.fromImage(image)
+
+    def on_alt_double_tap(self):
+        if not self.isActiveWindow():
+            return
+        logger.debug('Alt double tap: toggle pen mode')
+        self.on_action_toggle_draw()
+        state = 'on' if self.scene.draw_mode else 'off'
+        widgets.BeeNotification(
+            self, tr('Pen mode {state}', state=tr(state)))
+
+    # -- Language ----------------------------------------------------------
+
+    def on_language_changed(self, code):
+        self.retranslate_ui()
+
+    def retranslate_ui(self):
+        """Re-applies the active language to menus and open windows."""
+
+        logger.debug('Retranslating the user interface')
+        self.retranslate_actions()
+        self.update_window_title()
+        overlay = getattr(self, 'welcome_overlay', None)
+        if overlay is not None:
+            overlay.retranslate()
+
+    # -- Shared board sessions ---------------------------------------------
+
+    def get_collab_name(self):
+        name = None
+        settings = getattr(self, 'settings', None)
+        if settings is not None:
+            try:
+                name = settings.value('Collab/name')
+            except Exception:  # noqa: BLE001 - settings not ready yet
+                name = None
+        if not name:
+            import getpass
+            try:
+                name = getpass.getuser()
+            except Exception:  # noqa: BLE001 - no user info available
+                name = 'BeeRef user'
+        return name
+
+    def on_collab_status(self, status):
+        self.update_window_title()
+        lowered = status.lower()
+        if ('could not' in lowered or 'error' in lowered
+                or 'denied' in lowered):
+            widgets.BeeNotification(self, status)
+
+    def on_collab_peers_changed(self, count):
+        self.update_window_title()
+        self.actiongroup_set_enabled('active_when_can_undo', True)
+        if count:
+            widgets.BeeNotification(
+                self, tr('Shared board: {count} peer(s) connected',
+                        count=count))
+
+    def on_collab_board_replaced(self):
+        # The board was replaced by the host's snapshot
+        self.cancel_active_modes()
+        self.undo_stack.clear()
+        self.on_action_fit_scene()
+        self.update_window_title()
+
+    def on_action_collab_host(self):
+        """Shares this board; peers join with the generated session code."""
+
+        self.cancel_active_modes()
+        if self.collab.is_active():
+            widgets.BeeNotification(
+                self, tr('A session is already running; stop it first'))
+            return
+        self.collab.name = self.get_collab_name()
+        action = actions.actions['collab_approval'].qaction
+        self.collab.approval_callback = (
+            self.approve_collab_peer if action.isChecked() else None)
+        code = self.collab.host()
+        if not code:
+            widgets.BeeNotification(self, self.collab.status)
+            return
+        QtWidgets.QApplication.clipboard().setText(code)
+        QtWidgets.QMessageBox.information(
+            self, tr('Share Board'),
+            tr('This board is now shared.\n\n'
+               'Session code:\n\n    {code}\n\n'
+               '(The code has been copied to the clipboard.)\n\n'
+               'Other users start BeeRef, choose Collaborate -> Join Shared '
+               'Board and type this code. They do not need to know your IP '
+               'address.\n\n'
+               'The code is never sent over the network, the connection is '
+               'encrypted, and you will be asked before anyone joins.\n\n'
+               'Note: the board is not saved automatically - use File -> '
+               'Save As to keep a copy.', code=code))
+        self.update_window_title()
+
+    def approve_collab_peer(self, name, address):
+        """Asks whether a peer that knows the code may join."""
+
+        answer = QtWidgets.QMessageBox.question(
+            self, tr('Join Request'),
+            tr('"{name}" ({address}) knows the session code and wants to '
+               'join this board.\n\nAllow?',
+               name=name, address=address or tr('unknown device')))
+        return answer == QtWidgets.QMessageBox.StandardButton.Yes
+
+    def on_action_collab_join(self):
+        """Joins a board using its session code (no IP needed)."""
+
+        self.cancel_active_modes()
+        if self.collab.is_active():
+            answer = QtWidgets.QMessageBox.question(
+                self, tr('Join Shared Board'),
+                tr('You are already in a session. Leave it and join '
+                   'another?'))
+            if answer != QtWidgets.QMessageBox.StandardButton.Yes:
+                return
+            self.collab.leave()
+        code, ok = QtWidgets.QInputDialog.getText(
+            self, tr('Join Shared Board'),
+            tr('Session code (for example K7M4Q-9PXE2):'))
+        if not ok:
+            return
+        code = collab.normalize_code(code)
+        if not code:
+            widgets.BeeNotification(
+                self, tr('Please enter the session code'))
+            return
+        if self.scene.items():
+            answer = QtWidgets.QMessageBox.question(
+                self, tr('Join Shared Board'),
+                tr('Joining loads the shared board and replaces the items '
+                   'currently in this window. Continue?'))
+            if answer != QtWidgets.QMessageBox.StandardButton.Yes:
+                return
+        self.collab.name = self.get_collab_name()
+        self.collab.approval_callback = None
+        if self.collab.join(code):
+            widgets.BeeNotification(
+                self, tr('Joined the shared board ({code})',
+                         code=self.collab.session_code))
+        else:
+            widgets.BeeNotification(self, self.collab.last_error
+                                    or self.collab.status)
+        self.update_window_title()
+
+    def on_action_collab_code(self):
+        """Shows the current session code and who is connected."""
+
+        if not self.collab.is_active():
+            widgets.BeeNotification(self, tr('This board is not shared'))
+            return
+        code = self.collab.session_code or '-'
+        QtWidgets.QApplication.clipboard().setText(code)
+        if self.collab.is_host:
+            peers = self.collab.peer_count()
+            detail = (tr('{count} peer(s) connected.', count=peers)
+                      if peers else tr('No one has joined yet.'))
+            QtWidgets.QMessageBox.information(
+                self, tr('Session Code'),
+                tr('Session code:\n\n    {code}\n\n{detail}\n\n'
+                   'The code has been copied to the clipboard.',
+                   code=code, detail=detail))
+        else:
+            QtWidgets.QMessageBox.information(
+                self, tr('Session Code'),
+                tr('Connected to a shared board with code:\n\n'
+                   '    {code}\n\n'
+                   'The code has been copied to the clipboard.', code=code))
+
+    def on_action_collab_approval(self, checked):
+        """Toggles whether the host is asked before a peer joins."""
+
+        if checked:
+            self.collab.approval_callback = self.approve_collab_peer
+        else:
+            self.collab.approval_callback = None
+        widgets.BeeNotification(
+            self, tr('Peers are asked for approval before joining')
+            if checked else tr('Peers can join without asking'))
+
+    def on_action_collab_leave(self):
+        if not self.collab.is_active():
+            widgets.BeeNotification(
+                self, tr('Not in a shared session'))
+            return
+        self.collab.leave()
+        widgets.BeeNotification(self, tr('Left the shared session'))
+        self.update_window_title()
 
     def on_action_copy(self):
         logger.debug('Copying to clipboard...')
@@ -718,10 +1323,15 @@ class BeeGraphicsView(MainControlsMixin,
             QtCore.QUrl.fromLocalFile(dirname))
 
     def on_selection_changed(self):
+        if sip.isdeleted(self.scene) or sip.isdeleted(self):
+            # Emitted while the scene is being destroyed (app shutdown)
+            return
         logger.debug('Currently selected items: %s',
                      len(self.scene.selectedItems(user_only=True)))
-        self.actiongroup_set_enabled('active_when_selection',
-                                     self.scene.has_selection())
+        self.actiongroup_set_enabled(
+            'active_when_selection',
+            self.scene.has_selection()
+            or self.scene.selected_link is not None)
         self.actiongroup_set_enabled('active_when_single_image',
                                      self.scene.has_single_image_selection())
 
@@ -732,11 +1342,11 @@ class BeeGraphicsView(MainControlsMixin,
         self.viewport().repaint()
 
     def on_cursor_changed(self, cursor):
-        if self.active_mode is None:
+        if self.active_mode is None and not self.scene.draw_mode:
             self.viewport().setCursor(cursor)
 
     def on_cursor_cleared(self):
-        if self.active_mode is None:
+        if self.active_mode is None and not self.scene.draw_mode:
             self.viewport().unsetCursor()
 
     def recalc_scene_rect(self):
@@ -857,7 +1467,6 @@ class BeeGraphicsView(MainControlsMixin,
     def mousePressEvent(self, event):
         if self.mousePressEventMainControls(event):
             return
-
         if self.active_mode == self.SAMPLE_COLOR_MODE:
             if (event.button() == Qt.MouseButton.LeftButton):
                 color = self.scene.sample_color_at(
@@ -867,7 +1476,8 @@ class BeeGraphicsView(MainControlsMixin,
                     clipboard = QtWidgets.QApplication.clipboard()
                     clipboard.setText(name)
                     self.scene.internal_clipboard = []
-                    msg = f'Copied color to clipboard: {name}'
+                    msg = tr('Copied color to clipboard: {name}',
+                             name=name)
                     logger.debug(msg)
                     widgets.BeeNotification(self, msg)
                 else:
@@ -898,8 +1508,12 @@ class BeeGraphicsView(MainControlsMixin,
             return
 
         super().mousePressEvent(event)
+        self._prepare_drag_export(event)
 
     def mouseMoveEvent(self, event):
+        if self._maybe_start_export_drag(event):
+            return
+
         if self.active_mode == self.PAN_MODE:
             self.reset_previous_transform()
             pos = event.position()
@@ -931,6 +1545,9 @@ class BeeGraphicsView(MainControlsMixin,
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        self._drag_export_items = []
+        self._drag_export_positions = []
+        self._drag_export_start = None
         if self.active_mode == self.PAN_MODE:
             logger.trace('End pan')
             self.viewport().unsetCursor()
@@ -957,4 +1574,14 @@ class BeeGraphicsView(MainControlsMixin,
             self.cancel_sample_color_mode()
             event.accept()
             return
+        if (event.key() == Qt.Key.Key_Escape and self.scene.draw_mode):
+            self.on_action_toggle_draw(False)
+            event.accept()
+            return
+        if (event.key() == Qt.Key.Key_Escape
+                and self.scene.selected_link is not None):
+            self.scene.clear_link_selection()
+            event.accept()
+            return
         super().keyPressEvent(event)
+

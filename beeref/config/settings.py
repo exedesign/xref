@@ -21,6 +21,7 @@ import os.path
 from PyQt6 import QtCore, QtGui
 
 from beeref import constants
+from beeref import i18n
 
 
 logger = logging.getLogger(__name__)
@@ -113,13 +114,18 @@ settings_events = BeeSettingsEvents()
 class BeeSettings(QtCore.QSettings):
 
     FIELDS = {
+        'General/language': {
+            'default': i18n.DEFAULT_LANGUAGE,
+            'validate': lambda x: x in i18n.LANGUAGES,
+            'post_save_callback': i18n.set_language,
+        },
         'Save/confirm_close_unsaved': {
             'default': True,
             'cast': bool,
         },
         'Items/image_storage_format': {
             'default': 'best',
-            'validate': lambda x: x in ('png', 'jpg', 'best'),
+            'validate': lambda x: x in ('png', 'jpg', 'webp', 'best'),
         },
         'Items/arrange_gap': {
             'default': 0,
@@ -160,6 +166,12 @@ class BeeSettings(QtCore.QSettings):
         else:
             alloc = self.valueOrDefault('Items/image_allocation_limit')
         QtGui.QImageReader.setAllocationLimit(alloc)
+        stored_language = self.value('General/language')
+        if stored_language is None:
+            # First start: follow the system language
+            self.setValue('General/language', i18n.system_language())
+        else:
+            i18n.set_language(stored_language, notify=False)
 
     def setValue(self, key, value):
         super().setValue(key, value)

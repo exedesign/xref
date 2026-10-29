@@ -20,6 +20,7 @@ from PyQt6 import QtWidgets, QtCore
 
 from beeref.config import KeyboardSettings, settings_events
 from beeref.config.controls import MouseWheelConfig
+from beeref.i18n import tr
 from beeref.widgets.controls.common import (
     MouseControlsEditorBase,
     MouseControlsModelBase,
