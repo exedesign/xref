@@ -404,6 +404,11 @@ TRANSLATIONS = {
         'Minimize': 'Küçült',
         'Full screen': 'Tam ekran',
         'Close window': 'Pencereyi kapat',
+        'Create &Web Link': '&Web Bağlantısı Oluştur',
+        'Web sharing needs the aiohttp package':
+            'Web paylaşımı aiohttp paketini gerektirir',
+        'Web link copied to clipboard: {link}':
+            'Web bağlantısı panoya kopyalandı: {link}',
         'Open Scene &Location': 'Sahne &Konumunu Aç',
         'No file open': 'Açık dosya yok',
                                                         'Remember Scene Layouts:': 'Sahne Düzenlerini Hatırla:',

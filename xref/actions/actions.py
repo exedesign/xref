@@ -278,6 +278,12 @@ actions = ActionList([
         callback='on_action_collab_approval',
     ),
     Action(
+        id='collab_web_link',
+        text='Create &Web Link',
+        callback='on_action_collab_web_link',
+        group='active_when_collab',
+    ),
+    Action(
         id='collab_leave',
         text='&Stop Sharing',
         callback='on_action_collab_leave',

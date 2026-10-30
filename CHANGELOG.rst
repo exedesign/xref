@@ -1,3 +1,10 @@
+* Web sharing (experimental): while a board is shared, Collaborate ->
+  Create Web Link starts a small server on the local network and copies
+  a browser link to the clipboard. Anyone who opens the link sees the
+  board live in the browser and can drag items; the changes sync to the
+  desktop session and the other peers. Needs the optional aiohttp
+  package.
+
 0.4.0-dev (unreleased)
 ======================
 

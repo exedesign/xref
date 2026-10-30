@@ -26,6 +26,8 @@ dependencies = [
     "pyQt6-Qt6>=6.7.0,<=6.7.0",
     "pyQt6>=6.7.0,<=6.7.0",
     "rectangle-packer>=2.0.1,<=2.0.2",
+    # Optional at runtime: web sharing (Collaborate -> Create Web Link)
+    "aiohttp>=3.9",
 ]
 
 [project.gui-scripts]

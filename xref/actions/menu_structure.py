@@ -150,6 +150,7 @@ menu_structure = [
             'collab_join',
             MENU_SEPARATOR,
             'collab_code',
+            'collab_web_link',
             'collab_approval',
             MENU_SEPARATOR,
             'collab_leave',

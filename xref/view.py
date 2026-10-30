@@ -1665,6 +1665,19 @@ class XRefGraphicsView(MainControlsMixin,
             self, tr('Peers are asked for approval before joining')
             if checked else tr('Peers can join without asking'))
 
+    def on_action_collab_web_link(self):
+        """Shares the board to browsers on the local network."""
+
+        link = self.collab.start_web_sharing()
+        if link is None:
+            widgets.XRefNotification(
+                self, tr('Web sharing needs the aiohttp package'))
+            return
+        clipboard = QtWidgets.QApplication.clipboard()
+        clipboard.setText(link)
+        widgets.XRefNotification(
+            self, tr('Web link copied to clipboard: {link}', link=link))
+
     def on_action_collab_leave(self):
         if not self.collab.is_active():
             widgets.XRefNotification(

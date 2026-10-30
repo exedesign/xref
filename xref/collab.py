@@ -1344,6 +1344,12 @@ class CollabSession(QtCore.QObject):
                     self._send(sock, payload)
         elif self.socket is not None:
             self._send(self.socket, payload)
+        # Mirror desktop traffic to the browser clients
+        bridge = getattr(self, 'web_bridge', None)
+        if bridge is not None and payload.get('type') == 'ops':
+            # Keep the cached snapshot for newly connecting browsers
+            self._web_cache = self.web_snapshot()
+            bridge.broadcast(payload)
 
     def _on_ready_read(self, sock):
         if sock is None:
@@ -1622,6 +1628,84 @@ class CollabSession(QtCore.QObject):
         self.scene.update()
 
     # -- Diffing -----------------------------------------------------------
+
+    # -- Web bridge -------------------------------------------------------
+
+    def start_web_sharing(self):
+        """Serves the board to browsers on the local network.
+
+        Returns the http://... link (with the session code), or None when
+        the optional aiohttp package is missing.
+        """
+
+        if not self.is_active():
+            return None
+        from xref.web_bridge import WebBridge, AIOHTTP_AVAILABLE
+        if not AIOHTTP_AVAILABLE:
+            return None
+        if getattr(self, 'web_bridge', None) is not None:
+            return self.web_link()
+        self.web_bridge = WebBridge(self, self.session_code)
+        # Precompute the snapshot on this (Qt) thread
+        self._web_cache = self.web_snapshot()
+        port = self.web_bridge.start()
+        if not port:
+            self.web_bridge = None
+            return None
+        logger.info(f'Web sharing on port {port}')
+        return self.web_link()
+
+    def web_link(self):
+        """The shareable browser link for this session."""
+
+        bridge = getattr(self, 'web_bridge', None)
+        if bridge is None or not bridge.port:
+            return None
+        import socket
+        try:
+            host = socket.gethostbyname(socket.gethostname())
+        except OSError:
+            host = '127.0.0.1'
+        return f'http://{host}:{bridge.port}/#CODE{self.session_code}'
+
+    def stop_web_sharing(self):
+        bridge = getattr(self, 'web_bridge', None)
+        if bridge is not None:
+            bridge.stop()
+            self.web_bridge = None
+
+    def web_snapshot(self):
+        """The current board as one payload for browser clients."""
+
+        snapshot = self._cached_web_snapshot()
+        self._web_cache = snapshot
+        return snapshot
+
+    def _cached_web_snapshot(self):
+        items, links = self._collect_state(include_image=True)
+        return {
+            'type': 'snapshot',
+            'items': [{'id': cid, 'item': state}
+                      for cid, state in items.items()],
+            'links': [list(link) for link in links],
+        }
+
+    def apply_web_message(self, payload):
+        """Applies ops from a browser client and relays them."""
+
+        if not isinstance(payload, dict):
+            return
+        if payload.get('type') != 'ops':
+            return
+        ops = payload.get('ops') or []
+        self._apply_ops(ops)
+        # Relay to the desktop peers
+        self._broadcast({'type': 'ops', 'origin': 'web',
+                         'ops': ops})
+        # And back to the other browsers
+        bridge = getattr(self, 'web_bridge', None)
+        if bridge is not None:
+            bridge.broadcast(payload)
 
     def sync(self):
         """Sends local changes to the peers."""

@@ -55,7 +55,9 @@ Features
   applications
 * Shared boards over the local network, paired with a session code (no IP
   addresses): authenticated, encrypted, with host approval, and the session
-  continues on another peer if the host goes away
+  continues on another peer if the host goes away; a Web Link
+  (Collaborate -> Create Web Link) lets anyone join and edit the board in a
+  browser, live, without installing anything
 * Turkish and English interface (Settings -> Miscellaneous -> Language)
 * Autosave with a configurable interval
 
