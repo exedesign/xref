@@ -26,8 +26,8 @@ CLIENT_HTML = r'''<!DOCTYPE html>
 <div id="imgcache"></div>
 <script>
 'use strict';
-const params = new URLSearchParams(location.hash.slice(1));
-const code = params.get('CODE') || '';
+const hash = location.hash || '';
+const code = hash.startsWith('#CODE') ? hash.slice(5) : '';
 const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 const ws = new WebSocket(
     `${wsProto}://${location.host}/ws?code=${encodeURIComponent(code)}`);
@@ -78,7 +78,7 @@ function draw() {
     const r = itemRect(st);
     const x = st.x || 0, y = st.y || 0;
     const img = images[st.image] || images[id];
-    if (img && img.complete) {
+    if (img && img.complete && img.naturalWidth > 0) {
       ctx.drawImage(img, x, y, r.w, r.h);
     } else {
       ctx.fillStyle = (st.type === 'text') ? '#2a2a30' : '#345';
@@ -241,6 +241,63 @@ canvas.addEventListener('wheel', (ev) => {
   view.scale *= factor;
   draw();
 }, {passive: false});
+
+// -- Drag & drop media from the desktop ---------------------------------
+canvas.addEventListener('dragover', (ev) => { ev.preventDefault(); });
+canvas.addEventListener('drop', async (ev) => {
+  ev.preventDefault();
+  const files = [...(ev.dataTransfer.files || [])];
+  if (!files.length) return;
+  const p = scenePos(ev);
+  for (const file of files) {
+    await addFile(file, p);
+  }
+});
+
+function guid() {
+  return 'web' + Math.random().toString(16).slice(2) +
+      Date.now().toString(16);
+}
+
+async function addFile(file, pos) {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  const data = btoa(bin);
+  const isImage = /^image\//.test(file.type);
+  const isVideo = /^video\//.test(file.type);
+  const state = {
+    type: isImage ? 'pixmap' : (isVideo ? 'video' : 'text'),
+    x: pos.x, y: pos.y,
+    filename: file.name,
+  };
+  if (isImage) {
+    state.asset = {inline: data, meta: {mime: file.type,
+                                        name: file.name, kind: 'image'}};
+    state.size = [400, 300];
+  } else if (isVideo) {
+    state.asset = {inline: data, meta: {mime: file.type,
+                                        name: file.name, kind: 'video'}};
+    state.size = [400, 300];
+  } else {
+    const text = await file.text();
+    state.text = text.slice(0, 10000);
+  }
+  const id = guid();
+  items[id] = state;
+  if (state.asset && state.asset.inline) {
+    const img = new Image();
+    img.src = `data:${state.asset.meta.mime};base64:${data}`;
+    images[id] = img;
+    img.onload = draw;
+  }
+  send([{op: 'add', id: id, item: state}]);
+  draw();
+}
 
 resize();
 if (!code) statusEl.textContent = 'no session code in the link';

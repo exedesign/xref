@@ -404,7 +404,14 @@ TRANSLATIONS = {
         'Minimize': 'Küçült',
         'Full screen': 'Tam ekran',
         'Close window': 'Pencereyi kapat',
+        'Create Web Link (&Internet)': 'Web Bağlantısı Oluştur (&İnternet)',
+        'Opening internet tunnel...': 'İnternet tüneli açılıyor...',
+        'Internet tunnel could not be opened; sharing on the local network instead: {link}':
+            'İnternet tüneli açılamadı; yerel ağda paylaşılıyor: {link}',
         'Create &Web Link': '&Web Bağlantısı Oluştur',
+        'Share the board first (Collaborate -> Share Board)':
+            'Önce panoyu paylaşın (İşbirliği -> Panoyu Paylaş)',
+
         'Web sharing needs the aiohttp package':
             'Web paylaşımı aiohttp paketini gerektirir',
         'Web link copied to clipboard: {link}':

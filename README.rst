@@ -57,7 +57,10 @@ Features
   addresses): authenticated, encrypted, with host approval, and the session
   continues on another peer if the host goes away; a Web Link
   (Collaborate -> Create Web Link) lets anyone join and edit the board in a
-  browser, live, without installing anything
+  browser, live, without installing anything; media files can be dropped
+  straight into the browser view, and Create Web Link (Internet) exposes
+  the board outside the local network through a plain-SSH tunnel
+  (localhost.run)
 * Turkish and English interface (Settings -> Miscellaneous -> Language)
 * Autosave with a configurable interval
 

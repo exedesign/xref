@@ -1524,6 +1524,8 @@ class XRefGraphicsView(MainControlsMixin,
 
     def on_collab_status(self, status):
         self.update_window_title()
+        self.actiongroup_set_enabled('active_when_collab',
+                                     self.collab.is_active())
         lowered = status.lower()
         if ('could not' in lowered or 'error' in lowered
                 or 'denied' in lowered):
@@ -1665,9 +1667,40 @@ class XRefGraphicsView(MainControlsMixin,
             self, tr('Peers are asked for approval before joining')
             if checked else tr('Peers can join without asking'))
 
+    def on_action_collab_web_link_public(self):
+        """Shares the board to browsers over the internet (ssh tunnel)."""
+
+        if not self.collab.is_active():
+            widgets.XRefNotification(
+                self, tr('Share the board first (Collaborate -> '
+                         'Share Board)'))
+            return
+        widgets.XRefNotification(
+            self, tr('Opening internet tunnel...'))
+        link = self.collab.start_web_sharing(public=True)
+        if link is None:
+            widgets.XRefNotification(
+                self, tr('Web sharing needs the aiohttp package'))
+            return
+        if '/lhr.' not in link:
+            widgets.XRefNotification(
+                self, tr('Internet tunnel could not be opened; '
+                         'sharing on the local network instead: {link}',
+                         link=link))
+            return
+        clipboard = QtWidgets.QApplication.clipboard()
+        clipboard.setText(link)
+        widgets.XRefNotification(
+            self, tr('Web link copied to clipboard: {link}', link=link))
+
     def on_action_collab_web_link(self):
         """Shares the board to browsers on the local network."""
 
+        if not self.collab.is_active():
+            widgets.XRefNotification(
+                self, tr('Share the board first (Collaborate -> '
+                         'Share Board)'))
+            return
         link = self.collab.start_web_sharing()
         if link is None:
             widgets.XRefNotification(

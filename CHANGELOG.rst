@@ -1,4 +1,13 @@
 * Web sharing (experimental): while a board is shared, Collaborate ->
+* Web sharing now works outside the local network: Collaborate ->
+  Create Web Link (Internet) opens a temporary https tunnel via
+  localhost.run using nothing but the built-in ssh client (the
+  forward uses 127.0.0.1, since Windows ssh resolves localhost
+  to IPv6). The tunnelled link carries the session code, so the
+  board stays private. Media files can now also be dropped onto
+  the browser view: they are inserted on the host board and
+  distributed to every peer.
+
   Create Web Link starts a small server on the local network and copies
   a browser link to the clipboard. Anyone who opens the link sees the
   board live in the browser and can drag items; the changes sync to the

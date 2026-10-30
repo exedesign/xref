@@ -281,7 +281,11 @@ actions = ActionList([
         id='collab_web_link',
         text='Create &Web Link',
         callback='on_action_collab_web_link',
-        group='active_when_collab',
+    ),
+    Action(
+        id='collab_web_link_public',
+        text='Create Web Link (&Internet)',
+        callback='on_action_collab_web_link_public',
     ),
     Action(
         id='collab_leave',

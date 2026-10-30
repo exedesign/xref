@@ -1,3 +1,4 @@
+
 """Shared whiteboard sessions between XRef installations.
 
 Inspired by PowerToys' "Mouse Without Borders" (pairing separate
@@ -1237,6 +1238,7 @@ class CollabSession(QtCore.QObject):
         """Stops sharing/leaves. A host announces it, so peers don't
         take over a session that was ended on purpose."""
 
+        self.stop_web_sharing()
         self._timer.stop()
         if self._recover_timer is not None:
             self._recover_timer.stop()
@@ -1631,11 +1633,13 @@ class CollabSession(QtCore.QObject):
 
     # -- Web bridge -------------------------------------------------------
 
-    def start_web_sharing(self):
-        """Serves the board to browsers on the local network.
+    def start_web_sharing(self, public=False):
+        """Serves the board to browsers.
 
-        Returns the http://... link (with the session code), or None when
-        the optional aiohttp package is missing.
+        Returns the shareable link (with the session code), or None when
+        the optional aiohttp package is missing. With ``public=True`` an
+        ssh tunnel (localhost.run) exposes the board on the internet; the
+        URL then carries the session code, which keeps the board private.
         """
 
         if not self.is_active():
@@ -1644,7 +1648,8 @@ class CollabSession(QtCore.QObject):
         if not AIOHTTP_AVAILABLE:
             return None
         if getattr(self, 'web_bridge', None) is not None:
-            return self.web_link()
+            return self.public_web_link() if getattr(
+                self, 'web_tunnel', None) else self.web_link()
         self.web_bridge = WebBridge(self, self.session_code)
         # Precompute the snapshot on this (Qt) thread
         self._web_cache = self.web_snapshot()
@@ -1653,6 +1658,14 @@ class CollabSession(QtCore.QObject):
             self.web_bridge = None
             return None
         logger.info(f'Web sharing on port {port}')
+        if public:
+            from xref.tunnel import SshTunnel
+            self.web_tunnel = SshTunnel(port)
+            url = self.web_tunnel.start()
+            if url:
+                return f'{url}/#CODE{self.session_code}'
+            # Tunnel failed: fall back to the local link
+            self.web_tunnel = None
         return self.web_link()
 
     def web_link(self):
@@ -1668,11 +1681,23 @@ class CollabSession(QtCore.QObject):
             host = '127.0.0.1'
         return f'http://{host}:{bridge.port}/#CODE{self.session_code}'
 
+    def public_web_link(self):
+        """The tunnelled internet link, when a tunnel is open."""
+
+        tunnel = getattr(self, 'web_tunnel', None)
+        if tunnel is not None and tunnel.url:
+            return f'{tunnel.url}/#CODE{self.session_code}'
+        return None
+
     def stop_web_sharing(self):
         bridge = getattr(self, 'web_bridge', None)
         if bridge is not None:
             bridge.stop()
             self.web_bridge = None
+        tunnel = getattr(self, 'web_tunnel', None)
+        if tunnel is not None:
+            tunnel.stop()
+            self.web_tunnel = None
 
     def web_snapshot(self):
         """The current board as one payload for browser clients."""
