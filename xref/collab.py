@@ -1749,6 +1749,21 @@ class CollabSession(QtCore.QObject):
         self._web_cache = snapshot
         return snapshot
 
+    def _view_state(self):
+        """The host's current pan/zoom, mirrored by browser clients."""
+
+        for view in self.scene.views():
+            try:
+                transform = view.transform()
+                centre = view.mapToScene(view.viewport().rect().center())
+                return {'scale': transform.m11(),
+                        'rot': transform.m21() != 0 or
+                               transform.m12() != 0,
+                        'cx': centre.x(), 'cy': centre.y()}
+            except RuntimeError:  # noqa: BLE001 - view already gone
+                continue
+        return None
+
     def _cached_web_snapshot(self):
         items, links = self._collect_state(include_image=True)
         return {
@@ -1757,10 +1772,11 @@ class CollabSession(QtCore.QObject):
                       for cid, state in items.items()],
             'links': [list(link) for link in links],
             'canvas': self._canvas_state(),
+            'view': self._view_state(),
         }
 
     def _canvas_state(self):
-        """Canvas settings the browser mirrors (colour and grid)."""
+        """Canvas settings the browser mirrors (colour, grid, titles)."""
 
         settings = XRefSettings()
         try:
@@ -1768,13 +1784,57 @@ class CollabSession(QtCore.QObject):
             spacing = int(settings.valueOrDefault('View/grid_spacing'))
         except Exception:  # noqa: BLE001 - settings not ready
             style, spacing = 'none', 50
+        try:
+            titles = bool(settings.valueOrDefault(
+                'Items/show_media_titles'))
+        except Exception:  # noqa: BLE001
+            titles = False
         colour = '#000000'
         views = self.scene.views()
         if views:
             qcolor = views[0].backgroundBrush().color()
             colour = qcolor.name()
         return {'grid': {'style': style, 'spacing': spacing},
-                'colour': colour}
+                'colour': colour,
+                'show_titles': titles}
+
+    def web_pending_assets(self):
+        """Large assets a newly connecting browser still needs.
+
+        Runs on the Qt thread (called from the web bridge). Returns
+        ``(data, name, kind)`` tuples for every distinct asset over the
+        inline limit, so a browser that connects later sees the same
+        board as the desktop.
+        """
+
+        from xref.collab import ASSET_INLINE_LIMIT  # pragma: no cover
+        result = []
+        seen = set()
+        try:
+            board_items = self.scene.items_for_save()
+        except RuntimeError:  # scene already gone
+            return result
+        for item in board_items:
+            try:
+                data = item_asset_bytes(item)
+            except Exception:  # noqa: BLE001 - unreadable media
+                continue
+            if not data or len(data) <= ASSET_INLINE_LIMIT:
+                continue
+            sha = _sha256(data)
+            if sha in seen:
+                continue
+            seen.add(sha)
+            if item.TYPE == XRefVideoItem.TYPE:
+                kind = 'video'
+            elif item.TYPE == XRefModelItem.TYPE:
+                kind = 'model'
+            elif item.TYPE == XRefPdfItem.TYPE:
+                kind = 'pdf'
+            else:
+                kind = 'image'
+            result.append((data, item.filename, kind))
+        return result
 
     def apply_web_message(self, payload):
         """Applies ops from a browser client and relays them."""

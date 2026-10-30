@@ -126,6 +126,11 @@ class WebBridge(QtCore.QObject):
                 self.session.web_snapshot()
             if snapshot:
                 await ws.send_str(json.dumps(snapshot))
+            # Large media (over the inline limit) follows in chunks, so
+            # the browser ends up with the same board as the desktop
+            assets = self.session.web_pending_assets()
+            for data, name, kind in assets:
+                await self._stream_asset(ws, data, name, kind)
             async for msg in ws:
                 if msg.type.name == 'TEXT':
                     try:
@@ -139,6 +144,26 @@ class WebBridge(QtCore.QObject):
         finally:
             self.clients.discard(ws)
         return ws
+
+    async def _stream_asset(self, ws, data, name, kind):
+        """Sends one large asset to a browser in chunks, with progress."""
+
+        import base64 as _b64
+        from xref.collab import ASSET_CHUNK_SIZE, _asset_meta, _sha256
+        sha = _sha256(data)
+        meta = _asset_meta(data, name, kind)
+        await ws.send_str(json.dumps(
+            {'type': 'asset_begin', 'sha': sha,
+             'size': len(data), 'meta': meta}))
+        for offset in range(0, len(data), ASSET_CHUNK_SIZE):
+            chunk = data[offset:offset + ASSET_CHUNK_SIZE]
+            await ws.send_str(json.dumps(
+                {'type': 'asset_chunk', 'sha': sha,
+                 'data': _b64.b64encode(chunk).decode('ascii')}))
+            # Yield to the event loop so handshake/ops keep flowing
+            await asyncio.sleep(0)
+        await ws.send_str(json.dumps(
+            {'type': 'asset_end', 'sha': sha, 'meta': meta}))
 
     def _on_client_message(self, payload):
         """Applies a web client's ops (runs on the Qt thread)."""

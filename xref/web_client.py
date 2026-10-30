@@ -28,6 +28,13 @@ CLIENT_HTML = r'''<!DOCTYPE html>
 'use strict';
 const hash = location.hash || '';
 const code = hash.startsWith('#CODE') ? hash.slice(5) : '';
+const statusEl0 = document.getElementById('status');
+if (!code) {
+  statusEl0.textContent =
+      'oturum kodu eksik — XRef\'teki "Web Bağlantısı Oluştur" ' +
+      'linkinin TAMAMINI (#CODE... dahil) açın';
+  statusEl0.style.color = '#ff9f6b';
+}
 const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 const ws = new WebSocket(
     `${wsProto}://${location.host}/ws?code=${encodeURIComponent(code)}`);
@@ -38,6 +45,7 @@ const statusEl = document.getElementById('status');
 
 let items = {};      // id -> item state
 let images = {};     // dataURL -> Image
+let videos = {};     // dataURL -> <video> element
 let links = [];
 let view = {x: 0, y: 0, scale: 1};
 let drag = null;
@@ -45,7 +53,8 @@ let pan = null;
 // Large assets stream in chunks; items show a download box meanwhile
 let assetBuffers = {};   // sha -> {received, size, chunks: []}
 let assetData = {};      // sha -> dataURL (complete)
-let boardCanvas = {colour: '#111111', grid: {style: 'none', spacing: 50}};
+let boardCanvas = {colour: '#111111', grid: {style: 'none', spacing: 50},
+                   show_titles: false};
 
 function resize() {
   canvas.width = innerWidth;
@@ -111,34 +120,57 @@ function draw() {
     const st = items[id];
     const r = itemRect(st);
     const x = st.x || 0, y = st.y || 0;
-    const img = images[st.image] || images[id];
+    const img = images[st.image] || images[id] ||
+                videos[st.image] || videos[id];
+    const isVideoEl = img && img.tagName === 'VIDEO' &&
+                      img.readyState >= 2;
     const sha = st.asset && st.asset.sha;
     const buf = sha ? assetBuffers[sha] : null;
+    ctx.save();
+    // Same geometry as the desktop: rotation and flip included
+    ctx.translate(x + r.w / 2, y + r.h / 2);
+    if (st.rotation) ctx.rotate(st.rotation * Math.PI / 180);
+    if (st.flip === -1) ctx.scale(-1, 1);
+    ctx.globalAlpha = (st.opacity === undefined) ? 1 : st.opacity;
+    ctx.translate(-r.w / 2, -r.h / 2);
     if (buf) {
       // Download placeholder with a progress bar, like the desktop view
       ctx.fillStyle = '#14141a';
-      ctx.fillRect(x, y, r.w, r.h);
+      ctx.fillRect(0, 0, r.w, r.h);
       const pct = Math.min(99, Math.floor(buf.received / buf.size * 100));
       ctx.fillStyle = '#4682d2';
-      ctx.fillRect(x, y, r.w * pct / 100, r.h);
+      ctx.fillRect(0, 0, r.w * pct / 100, r.h);
       ctx.fillStyle = '#ebebeb';
-      ctx.font = 'bold 14px sans-serif';
+      ctx.font = `bold ${18 / view.scale}px sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(pct + '%', x + r.w / 2, y + r.h / 2 + 5);
+      ctx.fillText(pct + '%', r.w / 2, r.h / 2 + 6 / view.scale);
       ctx.textAlign = 'left';
+    } else if (isVideoEl) {
+      try { ctx.drawImage(img, 0, 0, r.w, r.h); } catch (e) {}
     } else if (img && img.complete && img.naturalWidth > 0) {
-      ctx.drawImage(img, x, y, r.w, r.h);
+      ctx.drawImage(img, 0, 0, r.w, r.h);
     } else {
       ctx.fillStyle = (st.type === 'text') ? '#2a2a30' : '#345';
-      ctx.fillRect(x, y, r.w, r.h);
+      ctx.fillRect(0, 0, r.w, r.h);
       if (st.text) {
         ctx.fillStyle = '#eee';
         ctx.font = `${14 / view.scale}px sans-serif`;
         const lines = String(st.text).slice(0, 200).split('\n');
         lines.slice(0, 8).forEach((line, i) =>
-          ctx.fillText(line, x + 6, y + 20 + i * 18, r.w - 12));
+          ctx.fillText(line, 6, 20 + i * 18, r.w - 12));
       }
     }
+    // Media title band, matching the desktop label
+    if (boardCanvas.show_titles && st.filename) {
+      const name = st.filename.split(/[\\/]/).pop();
+      const h = 18 / view.scale;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(0, r.h, r.w, h);
+      ctx.fillStyle = '#ebebeb';
+      ctx.font = `${9 / view.scale}px sans-serif`;
+      ctx.fillText(name, 4 / view.scale, r.h + h * 0.7);
+    }
+    ctx.restore();
     if (drag && drag.id === id) {
       ctx.strokeStyle = '#8fc3ff';
       ctx.lineWidth = 2 / view.scale;
@@ -153,20 +185,45 @@ function loadImages() {
     const st = items[id];
     const key = st.image || id;
     if (st.imageData && !images[key]) {
-      const img = new Image();
-      img.src = st.imageData;
-      images[key] = img;
-      img.onload = draw;
+      const isVideo = (st.type === 'video') ||
+          (st.asset && st.asset.meta &&
+           String(st.asset.meta.mime || '').startsWith('video/'));
+      if (isVideo) {
+        const v = document.createElement('video');
+        v.src = st.imageData;
+        v.muted = true; v.loop = true;
+        v.addEventListener('canplay', () => { v.play(); draw(); });
+        v.addEventListener('error', () => draw());
+        videos[key] = v;
+        document.getElementById('imgcache').appendChild(v);
+      } else {
+        const img = new Image();
+        img.src = st.imageData;
+        images[key] = img;
+        img.onload = draw;
+      }
     }
   }
 }
+
+function tick() {
+  let hasVideo = false;
+  for (const k in videos) hasVideo = true;
+  if (hasVideo) draw();
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
 
 function send(ops) {
   if (ws.readyState === 1) ws.send(JSON.stringify({type: 'ops', ops}));
 }
 
 ws.onopen = () => statusEl.textContent = 'connected';
-ws.onclose = () => statusEl.textContent = 'disconnected';
+ws.onclose = () => {
+  statusEl.textContent = code
+      ? 'disconnected (bağlantı koptu — sayfayı yenileyin)'
+      : 'oturum kodu eksik — tam linki açın (#CODE... dahil)';
+};
 ws.onerror = () => statusEl.textContent = 'error';
 ws.onmessage = (ev) => {
   let msg;
@@ -191,7 +248,12 @@ ws.onmessage = (ev) => {
       document.body.style.background = boardCanvas.colour || '#111';
     }
     loadImages();
-    fitView();
+    if (msg.view && msg.view.scale > 0) {
+      // Mirror the desktop's pan/zoom instead of fitting our own view
+      applyView(msg.view);
+    } else {
+      fitView();
+    }
     draw();
     statusEl.textContent = 'live';
   } else if (msg.type === 'ops') {
@@ -222,17 +284,31 @@ ws.onmessage = (ev) => {
     if (buf) {
       const bin = buf.chunks.map(c => atob(c)).join('');
       const mime = (buf.meta.mime) || 'application/octet-stream';
-      const img = new Image();
-      img.src = `data:${mime};base64,${btoa(bin)}`;
-      img.onload = draw;
+      const dataURL = `data:${mime};base64,${btoa(bin)}`;
+      const isVideo = mime.startsWith('video/') ||
+          String(buf.meta.kind || '') === 'video';
+      let media;
+      if (isVideo) {
+        media = document.createElement('video');
+        media.src = dataURL;
+        media.muted = true; media.loop = true;
+        media.addEventListener('canplay', () => { media.play(); draw(); });
+        media.addEventListener('error', () => draw());
+        document.getElementById('imgcache').appendChild(media);
+      } else {
+        media = new Image();
+        media.src = dataURL;
+        media.onload = draw;
+      }
       // attach to the items that referenced this sha
       for (const iid in items) {
         if (items[iid].asset && items[iid].asset.sha === msg.sha) {
           items[iid].image = msg.sha;
-          images[msg.sha] = img;
+          if (isVideo) videos[msg.sha] = media;
+          else images[msg.sha] = media;
         }
       }
-      assetData[msg.sha] = img.src;
+      assetData[msg.sha] = dataURL;
       delete assetBuffers[msg.sha];
       draw();
     }
@@ -240,6 +316,13 @@ ws.onmessage = (ev) => {
     statusEl.textContent = 'error: ' + (msg.message || '');
   }
 };
+
+function applyView(v) {
+  const scale = v.scale;
+  view = {scale: scale,
+          x: canvas.width / 2 - v.cx * scale,
+          y: canvas.height / 2 - v.cy * scale};
+}
 
 function fitView() {
   let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
