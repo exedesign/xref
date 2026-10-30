@@ -152,7 +152,8 @@ def test_sqliteio_create_schema_on_new_when_create_new(tmpfile):
     result = io.fetchone(
         'SELECT COUNT(*) FROM sqlite_master '
         'WHERE type="table" AND name NOT LIKE "sqlite_%"')
-    assert result[0] == 2
+    # items, sqlar and meta are created for new boards
+    assert result[0] == 3
     scene_mock.clear_save_ids.assert_called_once()
 
 

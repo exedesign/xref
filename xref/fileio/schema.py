@@ -1,4 +1,4 @@
-USER_VERSION = 3
+USER_VERSION = 4
 APPLICATION_ID = 2060242126
 
 
@@ -30,6 +30,12 @@ SCHEMA = [
              ON UPDATE NO ACTION
     )
     """,
+    """
+    CREATE TABLE meta (
+        key TEXT PRIMARY KEY,
+        value BLOB
+    )
+    """,
 ]
 
 
@@ -53,6 +59,14 @@ MIGRATIONS = {
               REFERENCES items (id)
                  ON DELETE CASCADE
                  ON UPDATE NO ACTION
+        )
+        """,
+    ],
+    4: [
+        """
+        CREATE TABLE meta (
+            key TEXT PRIMARY KEY,
+            value BLOB
         )
         """,
     ],

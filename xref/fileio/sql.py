@@ -185,6 +185,21 @@ class SQLiteIO:
         self.ex(*args, **kwargs)
         return self.cursor.fetchall()
 
+    def set_meta(self, key, value):
+        """Stores a metadata value (e.g. the window layout) in the board."""
+
+        self.ex(
+            'INSERT INTO meta (key, value) VALUES (?, ?) '
+            'ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+            (key, value))
+        self.connection.commit()
+
+    def get_meta(self, key):
+        """Reads a metadata value from the board, or None."""
+
+        row = self.fetchone('SELECT value FROM meta WHERE key=?', (key,))
+        return row[0] if row else None
+
     def write_meta(self):
         self.ex('PRAGMA application_id=%s' % APPLICATION_ID)
         self.ex('PRAGMA user_version=%s' % USER_VERSION)

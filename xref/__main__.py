@@ -66,16 +66,8 @@ class XRefMainWindow(QtWidgets.QMainWindow):
         self.window_buttons = WindowButtons(self)
         self.show()
 
-    def scene_layout_path(self):
-        """The sidecar file holding this scene's window geometry."""
-
-        filename = self.view.filename
-        if not filename:
-            return None
-        return filename + '-layout'
-
     def save_scene_layout(self):
-        """Stores the window geometry next to the scene file."""
+        """Stores the window geometry inside the scene file itself."""
 
         try:
             if not self.view.settings.valueOrDefault(
@@ -83,18 +75,21 @@ class XRefMainWindow(QtWidgets.QMainWindow):
                 return
         except Exception:  # noqa: BLE001 - settings not ready
             return
-        path = self.scene_layout_path()
-        if not path:
+        filename = self.view.filename
+        if not filename or not os.path.isfile(filename):
             return
         try:
             import base64
-            with open(path, 'wb') as f:
-                f.write(base64.b64encode(self.saveGeometry()))
-        except OSError as e:
-            logger.info(f'Could not write scene layout {path}: {e}')
+            from xref.fileio import SQLiteIO
+            store = SQLiteIO(filename, self.view.scene)
+            store.set_meta('window_geometry',
+                           base64.b64encode(self.saveGeometry()))
+            store._close_connection()
+        except Exception as e:  # noqa: BLE001 - board may be read-only
+            logger.info(f'Could not store the scene layout: {e}')
 
     def restore_scene_layout(self):
-        """Applies the scene's stored window geometry, if there is one."""
+        """Applies the window geometry stored in the scene file."""
 
         try:
             if not self.view.settings.valueOrDefault(
@@ -102,16 +97,20 @@ class XRefMainWindow(QtWidgets.QMainWindow):
                 return False
         except Exception:  # noqa: BLE001 - settings not ready
             return False
-        path = self.scene_layout_path()
-        if not path or not os.path.isfile(path):
+        filename = self.view.filename
+        if not filename or not os.path.isfile(filename):
             return False
         try:
             import base64
-            with open(path, 'rb') as f:
-                geom = base64.b64decode(f.read())
-            return self.restoreGeometry(geom)
-        except (OSError, ValueError) as e:
-            logger.info(f'Could not read scene layout {path}: {e}')
+            from xref.fileio import SQLiteIO
+            store = SQLiteIO(filename, self.view.scene, readonly=True)
+            geom = store.get_meta('window_geometry')
+            store._close_connection()
+            if not geom:
+                return False
+            return self.restoreGeometry(base64.b64decode(geom))
+        except Exception as e:  # noqa: BLE001 - damaged file etc.
+            logger.info(f'Could not restore the scene layout: {e}')
             return False
 
     def closeEvent(self, event):

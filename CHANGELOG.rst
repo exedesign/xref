@@ -178,9 +178,9 @@ Added
   constant on screen at any zoom level. Strokes can be selected, moved,
   restyled and deleted, and are saved in bee files.
 * Each scene can remember its own window layout: with Settings -> View -> Remember
-  Scene Layouts enabled, the window position and size are stored in a small
-  sidecar file next to the board and restored when the board is reopened
-  (double-clicking a .xref file opens it with its own layout, not the
+  Scene Layouts enabled, the window position and size are stored inside the
+  board file (a new `meta` table; older boards are migrated automatically) and
+  restored when the board is reopened.
   last closed window's).
 
 * Background grid with two styles (classic lines and dots), configurable
