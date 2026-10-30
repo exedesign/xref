@@ -20,71 +20,11 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
 from xref.assets import XRefAssets
-from xref.config import XRefSettings
 from xref.i18n import tr
 from xref.main_controls import MainControlsMixin
 
 
 logger = logging.getLogger(__name__)
-
-
-class RecentFilesModel(QtCore.QAbstractListModel):
-    """An entry in the 'Recent Files' list."""
-
-    def __init__(self, files):
-        super().__init__()
-        self.files = files
-
-    def rowCount(self, parent):
-        return len(self.files)
-
-    def data(self, index, role):
-        if role == QtCore.Qt.ItemDataRole.DisplayRole:
-            return os.path.basename(self.files[index.row()])
-        if role == QtCore.Qt.ItemDataRole.FontRole:
-            font = QtGui.QFont()
-            font.setUnderline(True)
-            return font
-
-
-class RecentFilesView(QtWidgets.QListView):
-
-    def __init__(self, parent, view, files=None):
-        super().__init__(parent)
-        self.view = view
-        self.files = files or []
-        self.clicked.connect(self.on_clicked)
-        self.setModel(RecentFilesModel(self.files))
-        self.setMouseTracking(True)
-
-    def on_clicked(self, index):
-        self.view.open_from_file(self.files[index.row()])
-
-    def update_files(self, files):
-        self.files = files
-        self.model().files = files
-        self.reset()
-
-    def sizeHint(self):
-        size = QtCore.QSize()
-        height = sum(
-            (self.sizeHintForRow(i) + 2) for i in range(len(self.files)))
-        width = 0
-        if self.files:
-            width = max(
-                self.sizeHintForColumn(i) for i in range(len(self.files)))
-        size.setHeight(height)
-        size.setWidth(width + 2)
-        return size
-
-    def mouseMoveEvent(self, event):
-        index = self.indexAt(
-            QtCore.QPoint(int(event.position().x()),
-                          int(event.position().y())))
-        if index.isValid():
-            self.setCursor(Qt.CursorShape.PointingHandCursor)
-        else:
-            self.setCursor(Qt.CursorShape.ArrowCursor)
 
 
 class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
@@ -107,19 +47,6 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
         # the hints on the empty board
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.init_main_controls(main_window=parent.parent)
-
-        # Recent files
-        self.files_widget = QtWidgets.QWidget(self)
-        files_layout = QtWidgets.QVBoxLayout()
-        files_layout.addStretch(50)
-        files_layout.addWidget(
-            QtWidgets.QLabel(
-                f'<h3>{tr("Recent Files")}</h3>', self))
-        self.files_view = RecentFilesView(self, parent)
-        files_layout.addWidget(self.files_view)
-        files_layout.addStretch(50)
-        self.files_widget.setLayout(files_layout)
-        self.files_widget.hide()
 
         # Help text
         self.label = QtWidgets.QLabel(self.txt, self)
@@ -151,23 +78,15 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
         self.label.setText(self.txt)
 
     def show(self):
-        files = XRefSettings().get_recent_files(existing_only=True)
-        self.files_view.update_files(files)
-        if files and self.layout.indexOf(self.files_widget) < 0:
-            self.layout.insertWidget(0, self.files_widget)
-            self.files_widget.show()
+        # Recent boards live in the context menu (File -> Open Recent),
+        # not on the canvas
         super().show()
 
     def disable_mouse_events(self):
-        self.files_view.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.center_widget.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
     def enable_mouse_events(self):
-        self.files_view.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents,
-            on=False)
         self.center_widget.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents,
             on=False)

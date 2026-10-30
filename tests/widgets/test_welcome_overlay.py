@@ -1,61 +1,18 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from PyQt6 import QtCore, QtWidgets
 
 from xref.view import XRefGraphicsView
-from xref.config import XRefSettings
-from xref.widgets.welcome_overlay import (
-    RecentFilesModel,
-    RecentFilesView,
-    WelcomeOverlay,
-)
+from xref.widgets.welcome_overlay import WelcomeOverlay
 
 
-def test_recent_files_model_rowcount(view):
-    model = RecentFilesModel(['foo.png', 'bar.png'])
-    assert model.rowCount(None) == 2
-
-
-def test_recent_files_model_data_diplayrole(view):
-    model = RecentFilesModel(['foo.png', 'bar.png'])
-    index = MagicMock()
-    index.row.return_value = 1
-    assert model.data(index, QtCore.Qt.ItemDataRole.DisplayRole) == 'bar.png'
-
-
-def test_recent_files_model_data_fontrole(view):
-    model = RecentFilesModel(['foo.png', 'bar.png'])
-    index = MagicMock()
-    index.row.return_value = 1
-    font = model.data(index, QtCore.Qt.ItemDataRole.FontRole)
-    assert font.underline() is True
-
-
-@patch('xref.widgets.welcome_overlay.XRefSettings.get_recent_files',
-       return_value=[])
 def test_welcome_overlay_when_no_recent_files(qapp):
     parent = QtWidgets.QMainWindow()
     view = XRefGraphicsView(qapp, parent)
     overlay = WelcomeOverlay(view)
     overlay.show()
-    assert overlay.layout.indexOf(overlay.files_widget) < 0
-
-
-def test_recent_files_view_size_hint(qapp):
-    parent = QtWidgets.QMainWindow()
-    files_view = RecentFilesView(parent, None)
-
-    files_view.sizeHintForRow = lambda i: 10 + i
-    files_view.sizeHintForColumn = lambda i: 50 + i
-    files_view.update_files(['foo.png', 'bar.png'])
-    assert files_view.sizeHint() == QtCore.QSize(53, 25)
-
-
-def test_recent_files_view_size_hint_without_files(qapp):
-    parent = QtWidgets.QMainWindow()
-    files_view = RecentFilesView(parent, None)
-    files_view.update_files([])
-    assert files_view.sizeHint() == QtCore.QSize(2, 0)
+    # The canvas shows no recent files list; they live in the menu
+    assert not hasattr(overlay, 'files_widget')
 
 
 def test_welcome_overlay_shows_the_logo(qapp):
@@ -66,26 +23,14 @@ def test_welcome_overlay_shows_the_logo(qapp):
     assert overlay.layout.indexOf(overlay.center_widget) > 0
 
 
-def test_recent_files_view_on_click(qapp):
-    parent = QtWidgets.QMainWindow()
-    view = XRefGraphicsView(qapp, parent)
-    view.open_from_file = MagicMock()
-    overlay = WelcomeOverlay(view)
-    overlay.files_view.update_files(['foo.bee', 'bar.bee'])
-    overlay.files_view.on_clicked(
-        RecentFilesModel(
-            ['foo.bee', 'bar.bee']).createIndex(1, 0))
-    view.open_from_file.assert_called_once_with('bar.bee')
-
-
-@patch('xref.widgets.welcome_overlay.XRefSettings.get_recent_files',
-       return_value=['foo.bee', 'bar.bee'])
-def test_welcome_overlay_when_recent_files(qapp):
+def test_welcome_overlay_has_no_recent_files_widget(qapp):
     parent = QtWidgets.QMainWindow()
     view = XRefGraphicsView(qapp, parent)
     overlay = WelcomeOverlay(view)
     overlay.show()
-    assert overlay.layout.indexOf(overlay.files_widget) == 0
+    # No files widget exists on the canvas; recent files live in the menu
+    assert not hasattr(overlay, 'files_widget')
+    assert not hasattr(overlay, 'files_view')
 
 
 @patch('PyQt6.QtWidgets.QGraphicsView.mousePressEvent')
@@ -93,7 +38,11 @@ def test_mouse_press_when_move_window_active(mouse_event_mock, qapp):
     parent = QtWidgets.QMainWindow()
     view = XRefGraphicsView(qapp, parent)
     overlay = WelcomeOverlay(view)
+    from unittest.mock import MagicMock
+    event = MagicMock()
+    event.button.return_value = QtCore.Qt.MouseButton.LeftButton
+    event.pos.return_value = QtCore.QPointF(200.0, 150.0)
     overlay.movewin_active = True
-    overlay.mousePressEvent(MagicMock())
+    overlay.mousePressEvent(event)
     assert overlay.movewin_active is False
     mouse_event_mock.assert_not_called()
