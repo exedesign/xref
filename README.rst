@@ -24,7 +24,8 @@ Features
 * Frameless, PureRef-like window: double click the empty canvas for full
   screen, an always-on-top mode, resizable edges and a 10 px move band along
   every edge; minimize/full screen/close buttons appear in the top right
-  corner after a short delay
+  corner after a short delay. Each scene can remember its own window
+  position and size (Settings -> View -> Remember Scene Layouts)
 * Infinite canvas with pan, zoom, rotate, flip, crop, arrange (including
   randomly) and normalize; the canvas colour and a background grid (lines or
   dots) with optional item snapping are configurable

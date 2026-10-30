@@ -242,6 +242,15 @@ class LanguageWidget(RadioGroup):
         (code, name, name) for code, name in i18n.LANGUAGES.items())
 
 
+class RememberSceneLayoutsWidget(SingleCheckboxGroup):
+    TITLE = 'Remember Scene Layouts:'
+    HELPTEXT = ('Save the window position and size for each scene in a '
+                'small file next to it. Reopening a scene restores its '
+                'window; new windows keep using the last closed layout.')
+    LABEL = 'Remember layouts per scene'
+    KEY = 'View/remember_scene_layouts'
+
+
 class GridStyleWidget(RadioGroup):
     TITLE = 'Background Grid:'
     HELPTEXT = ('The grid style of the canvas. Items can be snapped to the '
@@ -379,6 +388,7 @@ class SettingsDialog(QtWidgets.QDialog):
         view_layout.addWidget(GridStyleWidget(), 0, 0)
         view_layout.addWidget(GridSpacingWidget(), 0, 1)
         view_layout.addWidget(GridSnapWidget(), 1, 0)
+        view_layout.addWidget(RememberSceneLayoutsWidget(), 1, 1)
         tabs.addTab(view_tab, tr('&View'))
 
         # 3D Viewer

@@ -177,6 +177,12 @@ Added
   changed and are also applied to selected strokes; the size stays
   constant on screen at any zoom level. Strokes can be selected, moved,
   restyled and deleted, and are saved in bee files.
+* Each scene can remember its own window layout: with Settings -> View -> Remember
+  Scene Layouts enabled, the window position and size are stored in a small
+  sidecar file next to the board and restored when the board is reopened
+  (double-clicking a .xref file opens it with its own layout, not the
+  last closed window's).
+
 * Background grid with two styles (classic lines and dots), configurable
   spacing and optional item snapping. Items snap to the grid when they are
   dropped, even while the grid is hidden (Settings -> View). The grid keeps

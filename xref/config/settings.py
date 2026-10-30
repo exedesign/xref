@@ -216,6 +216,10 @@ class XRefSettings(QtCore.QSettings):
             'default': False,
             'cast': bool,
         },
+        'View/remember_scene_layouts': {
+            'default': False,
+            'cast': bool,
+        },
         'Items/image_allocation_limit': {
             'default': 256,
             'cast': int,

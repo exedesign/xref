@@ -404,6 +404,14 @@ TRANSLATIONS = {
         'Minimize': 'Küçült',
         'Full screen': 'Tam ekran',
         'Close window': 'Pencereyi kapat',
+        'Remember Scene Layouts:': 'Sahne Düzenlerini Hatırla:',
+        'Save the window position and size for each scene in a '
+        'small file next to it. Reopening a scene restores its '
+        'window; new windows keep using the last closed layout.':
+            'Her sahnenin pencere konumunu ve boyutunu yanına küçük bir '
+            'dosyada saklar. Sahne yeniden açıldığında penceresi '
+            'geri yüklenir; yeni pencereler son kapatılan düzeni kullanır.',
+        'Remember layouts per scene': 'Düzenleri sahne başına hatırla',
         'Background Grid:': 'Arka Plan Izgarası:',
         'The grid style of the canvas. Items can be snapped to the '
         'grid even while it is invisible.':

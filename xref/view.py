@@ -806,6 +806,10 @@ class XRefGraphicsView(MainControlsMixin,
         else:
             self.filename = filename
             self.scene.add_queued_items()
+            # Restore the window layout stored for this scene, if any
+            window = getattr(self.parent, 'restore_scene_layout', None)
+            if window is not None:
+                window()
             self.on_action_fit_scene()
 
     def on_action_open_recent_file(self, filename):

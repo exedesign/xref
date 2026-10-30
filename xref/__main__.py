@@ -66,7 +66,56 @@ class XRefMainWindow(QtWidgets.QMainWindow):
         self.window_buttons = WindowButtons(self)
         self.show()
 
+    def scene_layout_path(self):
+        """The sidecar file holding this scene's window geometry."""
+
+        filename = self.view.filename
+        if not filename:
+            return None
+        return filename + '-layout'
+
+    def save_scene_layout(self):
+        """Stores the window geometry next to the scene file."""
+
+        try:
+            if not self.view.settings.valueOrDefault(
+                    'View/remember_scene_layouts'):
+                return
+        except Exception:  # noqa: BLE001 - settings not ready
+            return
+        path = self.scene_layout_path()
+        if not path:
+            return
+        try:
+            import base64
+            with open(path, 'wb') as f:
+                f.write(base64.b64encode(self.saveGeometry()))
+        except OSError as e:
+            logger.info(f'Could not write scene layout {path}: {e}')
+
+    def restore_scene_layout(self):
+        """Applies the scene's stored window geometry, if there is one."""
+
+        try:
+            if not self.view.settings.valueOrDefault(
+                    'View/remember_scene_layouts'):
+                return False
+        except Exception:  # noqa: BLE001 - settings not ready
+            return False
+        path = self.scene_layout_path()
+        if not path or not os.path.isfile(path):
+            return False
+        try:
+            import base64
+            with open(path, 'rb') as f:
+                geom = base64.b64decode(f.read())
+            return self.restoreGeometry(geom)
+        except (OSError, ValueError) as e:
+            logger.info(f'Could not read scene layout {path}: {e}')
+            return False
+
     def closeEvent(self, event):
+        self.save_scene_layout()
         geom = self.saveGeometry()
         self.view.settings.setValue('MainWindow/geometry', geom)
         event.accept()
