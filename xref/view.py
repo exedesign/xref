@@ -1013,6 +1013,16 @@ class XRefGraphicsView(MainControlsMixin,
                 parent=self)
             self.worker.start()
 
+    def on_action_open_scene_location(self):
+        """Opens the folder of the current board in the file explorer."""
+
+        filename = getattr(self, 'filename', None)
+        if not filename:
+            widgets.XRefNotification(self, tr('No file open'))
+            return
+        folder = os.path.dirname(os.path.abspath(filename))
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(folder))
+
     def on_action_quit(self):
         confirm = self.get_confirmation_unsaved_changes(
             tr('There are unsaved changes. Are you sure you want to quit?'))

@@ -177,6 +177,13 @@ Added
   changed and are also applied to selected strokes; the size stays
   constant on screen at any zoom level. Strokes can be selected, moved,
   restyled and deleted, and are saved in bee files.
+* The recent files overview shows a real thumbnail (the board's first
+  embedded image), the time a board was last used and pinnable
+  favourites (right-click -> Pin to top); the number of shown boards
+  is configurable (Settings -> View -> Number of Recent Files).
+* New command Open Scene Location (Ctrl+Alt+L): reveals the current
+  board's folder in the file explorer.
+
 * Each scene can remember its own window layout: with Settings -> View -> Remember
   Scene Layouts enabled, the window position and size are stored inside the
   board file (a new `meta` table; older boards are migrated automatically) and

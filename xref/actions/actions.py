@@ -121,6 +121,12 @@ actions = ActionList([
         callback='on_action_open',
     ),
     Action(
+        id='open_scene_location',
+        text='Open Scene &Location',
+        shortcuts=['Ctrl+Alt+L'],
+        callback='on_action_open_scene_location',
+    ),
+    Action(
         id='save',
         text='&Save',
         shortcuts=['Ctrl+S'],

@@ -29,53 +29,107 @@ logger = logging.getLogger(__name__)
 
 
 class RecentFilesModel(QtCore.QAbstractListModel):
-    """An entry in the 'Recent Files' list."""
+    """The 'Recent Files' list: thumbnails, pin state and last used."""
 
-    def __init__(self, files):
+    THUMB = 96
+
+    def __init__(self, files, settings):
         super().__init__()
-        self.files = files
+        self.files = files or []
+        self.settings = settings
+        self.thumbnails = {}
+        self.pin_states = {}
 
     def rowCount(self, parent):
         return len(self.files)
 
+    def flags(self, index):
+        return (QtCore.Qt.ItemFlag.ItemIsEnabled
+                | QtCore.Qt.ItemFlag.ItemIsSelectable)
+
+    def refresh_metadata(self):
+        """Loads thumbnails and pin states (cheap enough for the list)."""
+
+        from xref.fileio import thumbnails
+        self.thumbnails = {}
+        self.pin_states = {}
+        for path in self.files:
+            image = thumbnails.board_thumbnail(path, self.THUMB)
+            if not image.isNull():
+                self.thumbnails[path] = QtGui.QIcon(
+                    QtGui.QPixmap.fromImage(image))
+            self.pin_states[path] = \
+                self.settings.is_pinned_recent_file(path)
+
     def data(self, index, role):
+        if not index.isValid():
+            return None
+        path = self.files[index.row()]
         if role == QtCore.Qt.ItemDataRole.DisplayRole:
-            return os.path.basename(self.files[index.row()])
+            name = os.path.basename(path)
+            mtime = os.path.getmtime(path) if os.path.exists(path) else 0
+            when = ''
+            if mtime:
+                from datetime import datetime
+                age_days = (datetime.now() - datetime.fromtimestamp(
+                    mtime)).days
+                if age_days == 0:
+                    when = tr('today')
+                elif age_days == 1:
+                    when = tr('yesterday')
+                else:
+                    when = tr('{days} days ago', days=age_days)
+            pin = '  \u2605' if self.pin_states.get(path) else ''
+            return f'{name}\n{when}{pin}'
+        if role == QtCore.Qt.ItemDataRole.DecorationRole:
+            return self.thumbnails.get(path)
+        if role == QtCore.Qt.ItemDataRole.ToolTipRole:
+            return path
         if role == QtCore.Qt.ItemDataRole.FontRole:
             font = QtGui.QFont()
             font.setUnderline(True)
             return font
+        return None
 
 
 class RecentFilesView(QtWidgets.QListView):
+
+    PIN_ROLE = QtCore.Qt.ItemDataRole.UserRole + 1
 
     def __init__(self, parent, view, files=None):
         super().__init__(parent)
         self.view = view
         self.files = files or []
         self.clicked.connect(self.on_clicked)
-        self.setModel(RecentFilesModel(self.files))
+        self.setModel(RecentFilesModel(self.files, XRefSettings()))
         self.setMouseTracking(True)
+        self.setViewMode(QtWidgets.QListView.ViewMode.IconMode)
+        self.setIconSize(QtCore.QSize(96, 96))
+        self.setGridSize(QtCore.QSize(140, 150))
+        self.setResizeMode(QtWidgets.QListView.ResizeMode.Adjust)
+        self.setUniformItemSizes(True)
+        self.setWordWrap(True)
 
     def on_clicked(self, index):
         self.view.open_from_file(self.files[index.row()])
 
+    def toggle_pin(self, index):
+        """Pins/unpins the file at the given index."""
+
+        path = self.files[index.row()]
+        XRefSettings().toggle_pinned_recent_file(path)
+        self.model().refresh_metadata()
+        self.model().layoutChanged.emit()
+        # Pinned files come first
+        self.update_files(sorted(
+            self.files,
+            key=lambda f: not XRefSettings().is_pinned_recent_file(f)))
+
     def update_files(self, files):
         self.files = files
         self.model().files = files
+        self.model().refresh_metadata()
         self.reset()
-
-    def sizeHint(self):
-        size = QtCore.QSize()
-        height = sum(
-            (self.sizeHintForRow(i) + 2) for i in range(len(self.files)))
-        width = 0
-        if self.files:
-            width = max(
-                self.sizeHintForColumn(i) for i in range(len(self.files)))
-        size.setHeight(height)
-        size.setWidth(width + 2)
-        return size
 
     def mouseMoveEvent(self, event):
         index = self.indexAt(
@@ -86,7 +140,23 @@ class RecentFilesView(QtWidgets.QListView):
         else:
             self.setCursor(Qt.CursorShape.ArrowCursor)
 
-        super().mouseMoveEvent(event)
+    def contextMenuEvent(self, event):
+        index = self.indexAt(event.pos())
+        if not index.isValid():
+            return
+        path = self.files[index.row()]
+        pinned = XRefSettings().is_pinned_recent_file(path)
+        menu = QtWidgets.QMenu(self)
+        pin_action = menu.addAction(
+            tr('Unpin') if pinned else tr('Pin to top'))
+        folder_action = menu.addAction(tr('Open file location'))
+        action = menu.exec(event.globalPos())
+        if action == pin_action:
+            self.toggle_pin(index)
+        elif action == folder_action:
+            folder = os.path.dirname(path)
+            QtGui.QDesktopServices.openUrl(
+                QtCore.QUrl.fromLocalFile(folder))
 
 
 class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):

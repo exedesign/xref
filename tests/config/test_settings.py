@@ -159,10 +159,12 @@ def test_settings_recent_files_update_existing(settings):
 
 
 def test_settings_recent_files_update_respects_max_num(settings):
+    settings.setValue('Save/recent_files_count', 10)
     for i in range(15):
         settings.update_recent_files(f'{i}.bee')
 
     recent = settings.get_recent_files()
     assert len(recent) == 10
+    settings.setValue('Save/recent_files_count', 5)
     assert recent[0] == os.path.abspath('14.bee')
     assert recent[-1] == os.path.abspath('5.bee')

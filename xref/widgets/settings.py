@@ -242,6 +242,15 @@ class LanguageWidget(RadioGroup):
         (code, name, name) for code, name in i18n.LANGUAGES.items())
 
 
+class RecentFilesCountWidget(IntegerGroup):
+    TITLE = 'Number of Recent Files:'
+    HELPTEXT = ('How many recent boards are listed on the empty canvas. '
+                'Set to 0 to hide the list.')
+    KEY = 'Save/recent_files_count'
+    MIN = 0
+    MAX = 20
+
+
 class RememberSceneLayoutsWidget(SingleCheckboxGroup):
     TITLE = 'Remember Scene Layouts:'
     HELPTEXT = ('Save the window position and size for each scene in a '
@@ -389,6 +398,7 @@ class SettingsDialog(QtWidgets.QDialog):
         view_layout.addWidget(GridSpacingWidget(), 0, 1)
         view_layout.addWidget(GridSnapWidget(), 1, 0)
         view_layout.addWidget(RememberSceneLayoutsWidget(), 1, 1)
+        view_layout.addWidget(RecentFilesCountWidget(), 2, 0)
         tabs.addTab(view_tab, tr('&View'))
 
         # 3D Viewer
