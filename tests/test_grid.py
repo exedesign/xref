@@ -76,7 +76,7 @@ def test_snap_works_while_grid_is_hidden(view):
 # -- Scene release snapping -----------------------------------------------------
 
 def test_dragging_snaps_the_item_to_the_grid(view, qapp):
-    """The release handler snaps the selection centre onto the grid."""
+    """The release handler snaps the item onto the screen-space grid."""
 
     view.settings.setValue('View/grid_snap', True)
     view.settings.setValue('View/grid_spacing', 50)
@@ -84,22 +84,35 @@ def test_dragging_snaps_the_item_to_the_grid(view, qapp):
         item = add_item(view, 137.0, 143.0)
         item.setSelected(True)
         scene = view.scene
-        # Simulate the state at the end of a Qt item drag: the item was
-        # already moved visually and MOVE_MODE is being finished
         item.setPos(160.0, 154.0)
         scene.active_mode = scene.MOVE_MODE
-        scene.event_start = QtCore.QPointF(0, 0)
-        scene.finish_item_move(QtCore.QPointF(0, 0))
-        center = item.mapToScene(item.boundingRect().center())
-        # The centre (210, 204) snaps onto the next grid crossing
-        assert center.x() % 50 == 0
-        assert center.y() % 50 == 0
-        assert (center.x(), center.y()) == (200.0, 200.0)
+        scene.event_start = QtCore.QPointF(137.0, 143.0)
+        scene.finish_item_move(QtCore.QPointF(160.0, 154.0))
+        # At zoom 1 the on-screen cell is 50 scene units: the item origin
+        # (160, 154) snaps onto (150, 150)
+        assert (item.pos().x(), item.pos().y()) == (150.0, 150.0)
         # The snap is part of one undo step and can be undone
         view.undo_stack.undo()
-        center = item.mapToScene(item.boundingRect().center())
-        assert (center.x(), center.y()) == (210.0, 204.0)
+        assert (item.pos().x(), item.pos().y()) == (160.0, 154.0)
         scene.active_mode = None
+    finally:
+        view.settings.setValue('View/grid_snap', False)
+
+
+def test_grid_spacing_stays_constant_on_screen(view, qapp):
+    """The snapped cell distance scales with the zoom (screen-constant)."""
+
+    view.settings.setValue('View/grid_snap', True)
+    view.settings.setValue('View/grid_spacing', 50)
+    try:
+        view.setTransform(QtGui.QTransform())  # zoom 1
+        p1 = view.snap_position_to_grid(QtCore.QPointF(137.0, 137.0))
+        assert (p1.x(), p1.y()) == (150.0, 150.0)
+        view.setTransform(QtGui.QTransform().scale(2.0, 2.0))
+        p2 = view.snap_position_to_grid(QtCore.QPointF(137.0, 137.0))
+        # At zoom 2 one cell is 25 scene units: 137 -> 125
+        assert (p2.x(), p2.y()) == (125.0, 125.0)
+        view.setTransform(QtGui.QTransform())
     finally:
         view.settings.setValue('View/grid_snap', False)
 

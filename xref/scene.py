@@ -1233,7 +1233,7 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
         if not items:
             return
         delta = release_pos - self.event_start
-        snap = self._grid_snap_delta(delta)
+        snap = self._grid_snap_delta()
         if not snap.isNull():
             # The snap correction moves the items visibly; it merges
             # with the drag into one undo step
@@ -1243,10 +1243,13 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
             self.undo_stack.push(
                 commands.MoveItemsBy(items, delta, ignore_first_redo=True))
 
-    def _grid_snap_delta(self, delta):
-        """Extra movement after a drag that snaps the selection to the grid.
+    def _grid_snap_delta(self):
+        """Extra movement that snaps the selection onto the grid.
 
-        Returns a null vector when grid snapping is off.
+        The first item's origin (top left of its bounding rect) is snapped
+        to the nearest grid crossing; the whole selection follows. Works
+        from the items' actual positions, so it is independent of how far
+        the drag went. Returns a null vector when snapping is off.
         """
 
         views = self.views()
@@ -1259,12 +1262,11 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
         items = self.selectedItems()
         if not items:
             return QtCore.QPointF()
-        # Snap the first item's position (all items moved by the same
-        # delta, so snapping one aligns the whole selection)
         item = items[0]
-        target = item.mapToScene(item.boundingRect().center())
-        snapped = snap_target(target)
-        return snapped - target
+        # Snap the item's position (its top left corner): the most
+        # predictable reference point for aligning a board
+        snapped = snap_target(item.pos())
+        return snapped - item.pos()
 
     def selectedItems(self, user_only=False):
         """If ``user_only`` is set to ``True``, only return items added

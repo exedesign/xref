@@ -1772,15 +1772,21 @@ class XRefGraphicsView(MainControlsMixin,
             spacing = 50.0
         if spacing < 5:
             return
-        # The grid lives in scene space: zooming shows more or fewer
-        # cells, and snapped positions stay put
-        left = rect.left() - (rect.left() % spacing)
-        top = rect.top() - (rect.top() % spacing)
+
+        # The grid keeps a constant size on screen: the cell distance is
+        # measured in viewport pixels. The visible viewport area is
+        # converted to scene coordinates and the lines are placed so they
+        # are `spacing` pixels apart on screen at the current zoom.
+        scale = max(self.get_scale(), 0.0001)
+        cell = spacing / scale  # cell size in scene units
+
+        area = self.mapToScene(self.viewport().rect()).boundingRect()
+        left = area.left() - (area.left() % cell)
+        top = area.top() - (area.top() % cell)
 
         color = self.backgroundBrush().color()
         grid_color = QtGui.QColor(
             255 - color.red(), 255 - color.green(), 255 - color.blue())
-        # A soft contrast against the canvas, readable on any background
         grid_color.setAlpha(40 if style == 'lines' else 90)
         pen = QtGui.QPen(grid_color)
         pen.setCosmetic(True)
@@ -1788,27 +1794,27 @@ class XRefGraphicsView(MainControlsMixin,
 
         if style == 'lines':
             x = left
-            while x <= rect.right():
-                painter.drawLine(QtCore.QPointF(x, rect.top()),
-                                 QtCore.QPointF(x, rect.bottom()))
-                x += spacing
+            while x <= area.right():
+                painter.drawLine(QtCore.QPointF(x, area.top()),
+                                 QtCore.QPointF(x, area.bottom()))
+                x += cell
             y = top
-            while y <= rect.bottom():
-                painter.drawLine(QtCore.QPointF(rect.left(), y),
-                                 QtCore.QPointF(rect.right(), y))
-                y += spacing
+            while y <= area.bottom():
+                painter.drawLine(QtCore.QPointF(area.left(), y),
+                                 QtCore.QPointF(area.right(), y))
+                y += cell
         else:  # dots
             painter.setBrush(grid_color)
             painter.setPen(Qt.PenStyle.NoPen)
-            radius = 1.0
+            radius = 1.0 / scale  # constant 1 px on screen
             y = top
-            while y <= rect.bottom():
+            while y <= area.bottom():
                 x = left
-                while x <= rect.right():
+                while x <= area.right():
                     painter.drawEllipse(QtCore.QPointF(x, y), radius,
                                         radius)
-                    x += spacing
-                y += spacing
+                    x += cell
+                y += cell
 
     def snap_position_to_grid(self, scene_pos):
         """The scene position snapped to the grid (if snapping is on).
@@ -1826,9 +1832,13 @@ class XRefGraphicsView(MainControlsMixin,
             return scene_pos
         if spacing < 5:
             return scene_pos
+        # The grid is a fixed distance apart on screen; convert it into
+        # scene units at the current zoom level
+        scale = max(self.get_scale(), 0.0001)
+        cell = spacing / scale
         return QtCore.QPointF(
-            round(scene_pos.x() / spacing) * spacing,
-            round(scene_pos.y() / spacing) * spacing)
+            round(scene_pos.x() / cell) * cell,
+            round(scene_pos.y() / cell) * cell)
 
     def recalc_scene_rect(self):
         """Resize the scene rectangle so that it is always one view width
