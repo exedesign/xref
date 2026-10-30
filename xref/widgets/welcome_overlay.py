@@ -105,7 +105,9 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
     def __init__(self, parent):
         super().__init__(parent)
         self.control_target = parent
-        self.setAutoFillBackground(True)
+        # Transparent, so the canvas (colour, grid) stays visible behind
+        # the hints on the empty board
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.init_main_controls(main_window=parent.parent)
 
         # Recent files

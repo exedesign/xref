@@ -1217,20 +1217,31 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
                 and self.has_selection()
                 and self.multi_select_item.active_mode is None
                 and self.selectedItems()[0].active_mode is None):
-            delta = event.scenePos() - self.event_start
-            snap = self._grid_snap_delta(delta)
-            if not snap.isNull():
-                self.undo_stack.push(
-                    commands.MoveItemsBy(self.selectedItems(),
-                                         snap,
-                                         ignore_first_redo=True))
-            elif not delta.isNull():
-                self.undo_stack.push(
-                    commands.MoveItemsBy(self.selectedItems(),
-                                         delta,
-                                         ignore_first_redo=True))
+            self.finish_item_move(event.scenePos())
         self.active_mode = None
         super().mouseReleaseEvent(event)
+
+    def finish_item_move(self, release_pos):
+        """Commits a finished drag: the drag delta plus the grid snap.
+
+        Qt has already moved the items visually, so the drag delta is
+        recorded for undo only; the snap correction has to move the items
+        again and is merged into the same undo step.
+        """
+
+        items = self.selectedItems()
+        if not items:
+            return
+        delta = release_pos - self.event_start
+        snap = self._grid_snap_delta(delta)
+        if not snap.isNull():
+            # The snap correction moves the items visibly; it merges
+            # with the drag into one undo step
+            self.undo_stack.push(commands.MoveItemsBy(items, snap))
+        elif not delta.isNull():
+            # Record the drag for undo (the move itself already happened)
+            self.undo_stack.push(
+                commands.MoveItemsBy(items, delta, ignore_first_redo=True))
 
     def _grid_snap_delta(self, delta):
         """Extra movement after a drag that snaps the selection to the grid.

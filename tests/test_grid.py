@@ -1,6 +1,7 @@
 """Tests for the background grid and grid snapping."""
 
-from PyQt6 import QtCore, QtGui
+from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6.QtCore import Qt
 
 from xref.config import XRefSettings
 from xref.items import XRefPixmapItem
@@ -75,33 +76,33 @@ def test_snap_works_while_grid_is_hidden(view):
 # -- Scene release snapping -----------------------------------------------------
 
 def test_dragging_snaps_the_item_to_the_grid(view, qapp):
+    """The release handler snaps the selection centre onto the grid."""
+
     view.settings.setValue('View/grid_snap', True)
     view.settings.setValue('View/grid_spacing', 50)
     try:
         item = add_item(view, 137.0, 143.0)
         item.setSelected(True)
         scene = view.scene
-        from PyQt6.QtCore import Qt
-        press = QtGui.QMouseEvent(
-            QtCore.QEvent.Type.MouseButtonPress,
-            QtCore.QPointF(180, 190), QtCore.QPointF(180, 190),
-            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier)
-        view.viewport().unsetCursor()
-        # Simulate the release handler directly
+        # Simulate the state at the end of a Qt item drag: the item was
+        # already moved visually and MOVE_MODE is being finished
+        item.setPos(160.0, 154.0)
         scene.active_mode = scene.MOVE_MODE
-        scene.event_start = QtCore.QPointF(180, 190)
+        scene.event_start = QtCore.QPointF(0, 0)
+        scene.finish_item_move(QtCore.QPointF(0, 0))
         center = item.mapToScene(item.boundingRect().center())
-        delta = scene._grid_snap_delta(QtCore.QPointF())
-        # The item center (187, 193) snaps to (200, 200)
-        assert abs(delta.x() - 13.0) < 1
-        assert abs(delta.y() - 7.0) < 1
+        # The centre (210, 204) snaps onto the next grid crossing
+        assert center.x() % 50 == 0
+        assert center.y() % 50 == 0
+        assert (center.x(), center.y()) == (200.0, 200.0)
+        # The snap is part of one undo step and can be undone
+        view.undo_stack.undo()
+        center = item.mapToScene(item.boundingRect().center())
+        assert (center.x(), center.y()) == (210.0, 204.0)
         scene.active_mode = None
     finally:
         view.settings.setValue('View/grid_snap', False)
 
-
-# -- Settings dialog --------------------------------------------------------------
 
 def test_settings_dialog_has_grid_widgets(settings, view):
     from xref.widgets.settings import (GridSnapWidget, GridSpacingWidget,

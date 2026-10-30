@@ -1772,9 +1772,8 @@ class XRefGraphicsView(MainControlsMixin,
             spacing = 50.0
         if spacing < 5:
             return
-        # The grid has a constant size on screen, independent of the zoom
-        scale = max(self.get_scale(), 0.01)
-        spacing /= scale
+        # The grid lives in scene space: zooming shows more or fewer
+        # cells, and snapped positions stay put
         left = rect.left() - (rect.left() % spacing)
         top = rect.top() - (rect.top() % spacing)
 
@@ -1801,7 +1800,7 @@ class XRefGraphicsView(MainControlsMixin,
         else:  # dots
             painter.setBrush(grid_color)
             painter.setPen(Qt.PenStyle.NoPen)
-            radius = 1.0 / scale
+            radius = 1.0
             y = top
             while y <= rect.bottom():
                 x = left
@@ -1812,7 +1811,11 @@ class XRefGraphicsView(MainControlsMixin,
                 y += spacing
 
     def snap_position_to_grid(self, scene_pos):
-        """The scene position snapped to the grid (if snapping is on)."""
+        """The scene position snapped to the grid (if snapping is on).
+
+        The grid lives in scene coordinates, so snapped items stay put
+        when the canvas is zoomed.
+        """
 
         try:
             if not self.settings.valueOrDefault('View/grid_snap'):
@@ -1821,8 +1824,8 @@ class XRefGraphicsView(MainControlsMixin,
                 'View/grid_spacing'))
         except (TypeError, ValueError):
             return scene_pos
-        scale = max(self.get_scale(), 0.01)
-        spacing /= scale
+        if spacing < 5:
+            return scene_pos
         return QtCore.QPointF(
             round(scene_pos.x() / spacing) * spacing,
             round(scene_pos.y() / spacing) * spacing)
