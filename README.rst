@@ -19,22 +19,38 @@ Features
 --------
 
 * Reference images (PNG, JPG, WebP, GIF, ...), videos (MP4, MOV, WebM, ...),
-  multi-page PDFs and 3D models (OBJ, STL, PLY, GLB, glTF, USDZ)
+  multi-page PDFs and 3D models (OBJ, STL, PLY, GLB, glTF, USDZ and binary
+  FBX)
 * Frameless, PureRef-like window: double click the empty canvas for full
-  screen, an always-on-top mode and resizable edges
-* Infinite canvas with pan, zoom, rotate, flip, crop, arrange and normalize
+  screen, an always-on-top mode, resizable edges and a 10 px move band along
+  every edge; minimize/full screen/close buttons appear in the top right
+  corner after a short delay
+* Infinite canvas with pan, zoom, rotate, flip, crop, arrange (including
+  randomly) and normalize; the canvas colour and a background grid (lines or
+  dots) with optional item snapping are configurable
 * Video playback with a DaVinci-Resolve-like hover scrub (red playhead), a
-  remembered preview frame, play/pause, mute and volume controls
+  remembered preview frame, play/pause, mute and volume controls; a single
+  click locks the frame under the pointer
 * PDFs behave like videos: hover to flip through the pages, the last shown page
-  is remembered and restored when the board is opened again
+  is remembered and restored when the board is opened again; a single click
+  locks the page
+* 3D models are rendered in software (no 3D engine needed): rotate by moving
+  the mouse over the model, click to pin the view, wheel to zoom; heavy
+  models are reduced automatically and the quality is adjustable
+  (Settings -> 3D Viewer)
+* Media titles: images, videos, PDFs and models can show their file name on
+  the canvas (Settings -> Miscellaneous -> Show Media Titles)
 * Node-editor style links between items: drag from the port on the item's edge,
   or use Tools -> Link Selected Items; linked children can be moved together
   with Ctrl+drag
 * Pen mode for freehand notes and sketches (Alt double-tap): brush colour and
-  four brush sizes, smooth strokes
+  four brush sizes, smooth strokes, plus shape tools (rectangles, ellipses
+  with Shift for squares/circles, straight lines)
 * Text notes, opacity, grayscale and colour gamut view
-* Drag & drop of images, videos, PDFs, boards, text, HTML, text files and links;
-  dragging a selection out of the window copies it to other applications
+* Duplicate (Ctrl+D) copies the selection with a small offset
+* Drag & drop of images, videos, PDFs, 3D models, boards, text, HTML, text
+  files and links; dragging a selection out of the window copies it to other
+  applications
 * Shared boards over the local network, paired with a session code (no IP
   addresses): authenticated, encrypted, with host approval, and the session
   continues on another peer if the host goes away
