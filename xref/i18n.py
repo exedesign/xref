@@ -406,18 +406,7 @@ TRANSLATIONS = {
         'Close window': 'Pencereyi kapat',
         'Open Scene &Location': 'Sahne &Konumunu Aç',
         'No file open': 'Açık dosya yok',
-        'today': 'bugün',
-        'yesterday': 'dün',
-        '{days} days ago': '{days} gün önce',
-        'Pin to top': 'En üste sabitle',
-        'Unpin': 'Sabitlemeyi kaldır',
-        'Open file location': 'Dosya konumunu aç',
-        'Number of Recent Files:': 'Son Dosya Sayısı:',
-        'How many recent boards are listed on the empty canvas. '
-        'Set to 0 to hide the list.':
-            'Boş tuvalde kaç son pano listeleneceği. Gizlemek için 0 '
-            'yazın.',
-        'Remember Scene Layouts:': 'Sahne Düzenlerini Hatırla:',
+                                                        'Remember Scene Layouts:': 'Sahne Düzenlerini Hatırla:',
         'Save the window position and size for each scene in a '
         'small file next to it. Reopening a scene restores its '
         'window; new windows keep using the last closed layout.':

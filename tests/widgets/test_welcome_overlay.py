@@ -12,21 +12,19 @@ from xref.widgets.welcome_overlay import (
 
 
 def test_recent_files_model_rowcount(view):
-    model = RecentFilesModel(['foo.png', 'bar.png'], XRefSettings())
+    model = RecentFilesModel(['foo.png', 'bar.png'])
     assert model.rowCount(None) == 2
 
 
 def test_recent_files_model_data_diplayrole(view):
-    model = RecentFilesModel(['foo.png', 'bar.png'], XRefSettings())
+    model = RecentFilesModel(['foo.png', 'bar.png'])
     index = MagicMock()
     index.row.return_value = 1
-    text = model.data(index, QtCore.Qt.ItemDataRole.DisplayRole)
-    # the label is now '<name>\n<last used>'
-    assert text.startswith('bar.png')
+    assert model.data(index, QtCore.Qt.ItemDataRole.DisplayRole) == 'bar.png'
 
 
 def test_recent_files_model_data_fontrole(view):
-    model = RecentFilesModel(['foo.png', 'bar.png'], XRefSettings())
+    model = RecentFilesModel(['foo.png', 'bar.png'])
     index = MagicMock()
     index.row.return_value = 1
     font = model.data(index, QtCore.Qt.ItemDataRole.FontRole)
@@ -43,20 +41,21 @@ def test_welcome_overlay_when_no_recent_files(qapp):
     assert overlay.layout.indexOf(overlay.files_widget) < 0
 
 
-def test_recent_files_view_is_an_icon_overview(qapp):
+def test_recent_files_view_size_hint(qapp):
     parent = QtWidgets.QMainWindow()
     files_view = RecentFilesView(parent, None)
+
+    files_view.sizeHintForRow = lambda i: 10 + i
+    files_view.sizeHintForColumn = lambda i: 50 + i
     files_view.update_files(['foo.png', 'bar.png'])
-    assert (files_view.viewMode()
-            == QtWidgets.QListView.ViewMode.IconMode)
-    assert not files_view.gridSize().isEmpty()
+    assert files_view.sizeHint() == QtCore.QSize(53, 25)
 
 
-def test_recent_files_view_accepts_empty_list(qapp):
+def test_recent_files_view_size_hint_without_files(qapp):
     parent = QtWidgets.QMainWindow()
     files_view = RecentFilesView(parent, None)
     files_view.update_files([])
-    assert files_view.model().rowCount(None) == 0
+    assert files_view.sizeHint() == QtCore.QSize(2, 0)
 
 
 def test_welcome_overlay_shows_the_logo(qapp):
@@ -75,8 +74,7 @@ def test_recent_files_view_on_click(qapp):
     overlay.files_view.update_files(['foo.bee', 'bar.bee'])
     overlay.files_view.on_clicked(
         RecentFilesModel(
-            ['foo.bee', 'bar.bee'],
-            XRefSettings()).createIndex(1, 0))
+            ['foo.bee', 'bar.bee']).createIndex(1, 0))
     view.open_from_file.assert_called_once_with('bar.bee')
 
 

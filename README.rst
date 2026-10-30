@@ -57,10 +57,6 @@ Features
   addresses): authenticated, encrypted, with host approval, and the session
   continues on another peer if the host goes away
 * Turkish and English interface (Settings -> Miscellaneous -> Language)
-* Recent boards on the empty canvas with real thumbnails, last-used
-  times and pinnable favourites; the list length is configurable and
-  File -> Open Scene Location (Ctrl+Alt+L) reveals the board in the
-  explorer
 * Autosave with a configurable interval
 
 Installation

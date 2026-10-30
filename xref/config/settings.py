@@ -220,11 +220,6 @@ class XRefSettings(QtCore.QSettings):
             'default': False,
             'cast': bool,
         },
-        'Save/recent_files_count': {
-            'default': 5,
-            'cast': int,
-            'validate': lambda x: 0 <= x <= 20,
-        },
         'Items/image_allocation_limit': {
             'default': 256,
             'cast': int,
@@ -360,41 +355,6 @@ class XRefSettings(QtCore.QSettings):
         args = CommandlineArgs()
         return args.settings_dir
 
-    def get_pinned_recent_files(self):
-        """The pinned recent files (shown first, never dropped)."""
-
-        size = self.beginReadArray('PinnedFiles')
-        values = []
-        for i in range(size):
-            self.setArrayIndex(i)
-            values.append(self.value('path'))
-        self.endArray()
-        return [f for f in values if os.path.exists(f)]
-
-    def set_pinned_recent_files(self, files):
-        self.beginWriteArray('PinnedFiles')
-        for i, path in enumerate(files):
-            self.setArrayIndex(i)
-            self.setValue('path', path)
-        self.endArray()
-
-    def toggle_pinned_recent_file(self, filename):
-        """Pins or unpins a recent file. Returns the new state."""
-
-        filename = os.path.abspath(filename)
-        pinned = self.get_pinned_recent_files()
-        if filename in pinned:
-            pinned.remove(filename)
-            pinned_state = False
-        else:
-            pinned.append(filename)
-            pinned_state = True
-        self.set_pinned_recent_files(pinned)
-        return pinned_state
-
-    def is_pinned_recent_file(self, filename):
-        return os.path.abspath(filename) in self.get_pinned_recent_files()
-
     def update_recent_files(self, filename):
         filename = os.path.abspath(filename)
         values = self.get_recent_files()
@@ -418,8 +378,4 @@ class XRefSettings(QtCore.QSettings):
 
         if existing_only:
             values = [f for f in values if os.path.exists(f)]
-        try:
-            limit = int(self.valueOrDefault('Save/recent_files_count'))
-        except (TypeError, ValueError):
-            limit = 5
-        return values[:limit]
+        return values
