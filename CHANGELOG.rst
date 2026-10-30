@@ -1,3 +1,12 @@
+* The web view mirrors the desktop canvas: the canvas colour, the background
+  grid (style and spacing) and media titles travel with the snapshot,
+  so everyone sees the same board. Large media now streams to browsers in
+  the same chunked transfer the desktop peers use; while a file is being
+  downloaded, the receiving side - desktop and browser alike - shows a box
+  the size of the media with a progress bar and percentage. The duplicate
+  web link menu entry was merged into a single "Create Web Link" that opens
+  the internet tunnel and falls back to the local network.
+
 * Web sharing (experimental): while a board is shared, Collaborate ->
 * Web sharing now works outside the local network: Collaborate ->
   Create Web Link (Internet) opens a temporary https tunnel via

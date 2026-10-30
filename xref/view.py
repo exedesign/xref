@@ -1667,8 +1667,8 @@ class XRefGraphicsView(MainControlsMixin,
             self, tr('Peers are asked for approval before joining')
             if checked else tr('Peers can join without asking'))
 
-    def on_action_collab_web_link_public(self):
-        """Shares the board to browsers over the internet (ssh tunnel)."""
+    def on_action_collab_web_link(self):
+        """Shares the board to browsers, over the internet when possible."""
 
         if not self.collab.is_active():
             widgets.XRefNotification(
@@ -1687,29 +1687,11 @@ class XRefGraphicsView(MainControlsMixin,
                 self, tr('Internet tunnel could not be opened; '
                          'sharing on the local network instead: {link}',
                          link=link))
-            return
+        else:
+            widgets.XRefNotification(
+                self, tr('Web link copied to clipboard: {link}', link=link))
         clipboard = QtWidgets.QApplication.clipboard()
         clipboard.setText(link)
-        widgets.XRefNotification(
-            self, tr('Web link copied to clipboard: {link}', link=link))
-
-    def on_action_collab_web_link(self):
-        """Shares the board to browsers on the local network."""
-
-        if not self.collab.is_active():
-            widgets.XRefNotification(
-                self, tr('Share the board first (Collaborate -> '
-                         'Share Board)'))
-            return
-        link = self.collab.start_web_sharing()
-        if link is None:
-            widgets.XRefNotification(
-                self, tr('Web sharing needs the aiohttp package'))
-            return
-        clipboard = QtWidgets.QApplication.clipboard()
-        clipboard.setText(link)
-        widgets.XRefNotification(
-            self, tr('Web link copied to clipboard: {link}', link=link))
 
     def on_action_collab_leave(self):
         if not self.collab.is_active():

@@ -42,6 +42,10 @@ let links = [];
 let view = {x: 0, y: 0, scale: 1};
 let drag = null;
 let pan = null;
+// Large assets stream in chunks; items show a download box meanwhile
+let assetBuffers = {};   // sha -> {received, size, chunks: []}
+let assetData = {};      // sha -> dataURL (complete)
+let boardCanvas = {colour: '#111111', grid: {style: 'none', spacing: 50}};
 
 function resize() {
   canvas.width = innerWidth;
@@ -50,14 +54,44 @@ function resize() {
 }
 addEventListener('resize', resize);
 
+function invertColour(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return {r: 255 - ((n >> 16) & 255), g: 255 - ((n >> 8) & 255),
+          b: 255 - (n & 255)};
+}
+
 function itemRect(state) {
   const s = state.size || [200, 200];
   return {w: s[0] * (state.scale || 1), h: s[1] * (state.scale || 1)};
 }
 
 function draw() {
-  ctx.fillStyle = '#111';
+  ctx.fillStyle = boardCanvas.colour || '#111';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Grid: same look as the desktop - constant on-screen spacing
+  if (boardCanvas.grid && boardCanvas.grid.style !== 'none' && boardCanvas.grid.spacing >= 5) {
+    const spacing = boardCanvas.grid.spacing;
+    const grid = invertColour(boardCanvas.colour || '#111111');
+    ctx.strokeStyle = `rgba(${grid.r},${grid.g},${grid.b},0.16)`;
+    ctx.lineWidth = 1;
+    if (boardCanvas.grid.style === 'dots') {
+      ctx.fillStyle = `rgba(${grid.r},${grid.g},${grid.b},0.35)`;
+      for (let y = 0; y < canvas.height; y += spacing) {
+        for (let x = 0; x < canvas.width; x += spacing) {
+          ctx.fillRect(x, y, 2, 2);
+        }
+      }
+    } else {
+      ctx.beginPath();
+      for (let x = 0; x < canvas.width; x += spacing) {
+        ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, canvas.height);
+      }
+      for (let y = 0; y < canvas.height; y += spacing) {
+        ctx.moveTo(0, y + 0.5); ctx.lineTo(canvas.width, y + 0.5);
+      }
+      ctx.stroke();
+    }
+  }
   ctx.save();
   ctx.translate(view.x, view.y);
   ctx.scale(view.scale, view.scale);
@@ -78,7 +112,21 @@ function draw() {
     const r = itemRect(st);
     const x = st.x || 0, y = st.y || 0;
     const img = images[st.image] || images[id];
-    if (img && img.complete && img.naturalWidth > 0) {
+    const sha = st.asset && st.asset.sha;
+    const buf = sha ? assetBuffers[sha] : null;
+    if (buf) {
+      // Download placeholder with a progress bar, like the desktop view
+      ctx.fillStyle = '#14141a';
+      ctx.fillRect(x, y, r.w, r.h);
+      const pct = Math.min(99, Math.floor(buf.received / buf.size * 100));
+      ctx.fillStyle = '#4682d2';
+      ctx.fillRect(x, y, r.w * pct / 100, r.h);
+      ctx.fillStyle = '#ebebeb';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(pct + '%', x + r.w / 2, y + r.h / 2 + 5);
+      ctx.textAlign = 'left';
+    } else if (img && img.complete && img.naturalWidth > 0) {
       ctx.drawImage(img, x, y, r.w, r.h);
     } else {
       ctx.fillStyle = (st.type === 'text') ? '#2a2a30' : '#345';
@@ -138,6 +186,10 @@ ws.onmessage = (ev) => {
       }
     }
     links = (msg.links || []).map(l => [l[0], l[1]]);
+    if (msg.canvas) {
+      boardCanvas = msg.canvas;
+      document.body.style.background = boardCanvas.colour || '#111';
+    }
     loadImages();
     fitView();
     draw();
@@ -154,6 +206,36 @@ ws.onmessage = (ev) => {
     }
     loadImages();
     draw();
+  } else if (msg.type === 'asset_begin') {
+    assetBuffers[msg.sha] = {received: 0, size: msg.size || 1,
+                             chunks: [], meta: msg.meta || {}};
+    draw();
+  } else if (msg.type === 'asset_chunk') {
+    const buf = assetBuffers[msg.sha];
+    if (buf) {
+      buf.chunks.push(msg.data);
+      buf.received += atob(msg.data).length;
+      draw();
+    }
+  } else if (msg.type === 'asset_end') {
+    const buf = assetBuffers[msg.sha];
+    if (buf) {
+      const bin = buf.chunks.map(c => atob(c)).join('');
+      const mime = (buf.meta.mime) || 'application/octet-stream';
+      const img = new Image();
+      img.src = `data:${mime};base64,${btoa(bin)}`;
+      img.onload = draw;
+      // attach to the items that referenced this sha
+      for (const iid in items) {
+        if (items[iid].asset && items[iid].asset.sha === msg.sha) {
+          items[iid].image = msg.sha;
+          images[msg.sha] = img;
+        }
+      }
+      assetData[msg.sha] = img.src;
+      delete assetBuffers[msg.sha];
+      draw();
+    }
   } else if (msg.type === 'error') {
     statusEl.textContent = 'error: ' + (msg.message || '');
   }

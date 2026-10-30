@@ -46,6 +46,7 @@ import uuid
 from PyQt6 import QtCore, QtGui, QtNetwork
 
 from xref.i18n import tr
+from xref.config import XRefSettings
 from xref.items import XRefDrawItem, XRefModelItem, XRefPdfItem, \
     XRefPixmapItem, XRefTextItem, XRefVideoItem, item_registry
 
@@ -864,12 +865,30 @@ class CollabSession(QtCore.QObject):
     def _broadcast_asset(self, data, name, kind, exclude=None):
         if not data or len(data) <= ASSET_INLINE_LIMIT:
             return
+        # Browsers receive the same chunked transfer with progress
+        bridge = getattr(self, 'web_bridge', None)
+        if bridge is not None:
+            self._send_asset_to_web(bridge, data, name, kind)
         if self.is_host:
             for sock in list(self.peers):
                 if sock is not exclude and self._keys_for(sock) is not None:
                     self._send_asset_to(sock, data, name, kind)
         elif self.socket is not None:
             self._send_asset_to(self.socket, data, name, kind)
+
+    def _send_asset_to_web(self, bridge, data, name, kind):
+        """Streams a large asset to the browser clients, with progress."""
+
+        import base64 as _b64
+        sha = _sha256(data)
+        meta = _asset_meta(data, name, kind)
+        bridge.broadcast({'type': 'asset_begin', 'sha': sha,
+                          'size': len(data), 'meta': meta})
+        for offset in range(0, len(data), ASSET_CHUNK_SIZE):
+            chunk = data[offset:offset + ASSET_CHUNK_SIZE]
+            bridge.broadcast({'type': 'asset_chunk', 'sha': sha,
+                              'data': _b64.b64encode(chunk).decode('ascii')})
+        bridge.broadcast({'type': 'asset_end', 'sha': sha, 'meta': meta})
 
     def _send_item_assets(self, items, sock=None):
         """Sends media that was too large to travel inline.
@@ -897,6 +916,15 @@ class CollabSession(QtCore.QObject):
             self._send(self.socket, {'type': 'asset_request', 'sha': sha})
 
     # -- Receiving media ---------------------------------------------------
+
+    def _clear_asset_progress(self, sha):
+        """Removes the download placeholder from the waiting items."""
+
+        for item in self._pending_assets.get(sha, []):
+            try:
+                item.set_download_progress(None)
+            except RuntimeError:
+                pass
 
     def _store_asset(self, sha, data, name):
         return store_asset(sha, data, name)
@@ -927,6 +955,9 @@ class CollabSession(QtCore.QObject):
                 return
             self._asset_buffers[sha] = bytearray()
             self._asset_meta[sha] = payload
+            # Show a download placeholder on every item waiting for this
+            for item in self._pending_assets.get(sha, []):
+                item.set_download_progress(0)
             return
         if mtype == 'asset_chunk':
             buffer = self._asset_buffers.get(sha)
@@ -936,10 +967,22 @@ class CollabSession(QtCore.QObject):
                 buffer.extend(base64.b64decode(payload.get('data') or ''))
             except (ValueError, TypeError):
                 self._asset_buffers.pop(sha, None)
+                self._clear_asset_progress(sha)
+                return
+            meta = self._asset_meta.get(sha, {})
+            try:
+                total = int(meta.get('size') or 0)
+            except (TypeError, ValueError):
+                total = 0
+            if total > 0:
+                percent = min(99, int(len(buffer) * 100 / total))
+                for item in self._pending_assets.get(sha, []):
+                    item.set_download_progress(percent)
             return
         if mtype == 'asset_end':
             buffer = self._asset_buffers.pop(sha, None)
             meta = self._asset_meta.pop(sha, {})
+            self._clear_asset_progress(sha)
             if buffer is None:
                 return
             data = bytes(buffer)
@@ -1713,7 +1756,25 @@ class CollabSession(QtCore.QObject):
             'items': [{'id': cid, 'item': state}
                       for cid, state in items.items()],
             'links': [list(link) for link in links],
+            'canvas': self._canvas_state(),
         }
+
+    def _canvas_state(self):
+        """Canvas settings the browser mirrors (colour and grid)."""
+
+        settings = XRefSettings()
+        try:
+            style = settings.valueOrDefault('View/grid_style')
+            spacing = int(settings.valueOrDefault('View/grid_spacing'))
+        except Exception:  # noqa: BLE001 - settings not ready
+            style, spacing = 'none', 50
+        colour = '#000000'
+        views = self.scene.views()
+        if views:
+            qcolor = views[0].backgroundBrush().color()
+            colour = qcolor.name()
+        return {'grid': {'style': style, 'spacing': spacing},
+                'colour': colour}
 
     def apply_web_message(self, payload):
         """Applies ops from a browser client and relays them."""

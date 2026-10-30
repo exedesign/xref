@@ -235,6 +235,42 @@ class XRefItemMixin(SelectableMixin):
                 and self.pos() == item_pos
                 and (event.pos() - pos).manhattanLength() <= 4)
 
+    def set_download_progress(self, percent):
+        """Shows a download placeholder with the given progress (0-100).
+
+        Used while a large media file is being transferred in a shared
+        session. Call with None to remove it.
+        """
+
+        self._download_percent = None if percent is None else max(
+            0, min(100, int(percent)))
+        self.update()
+
+    @property
+    def download_percent(self):
+        return getattr(self, '_download_percent', None)
+
+    def paint_download_placeholder(self, painter, rect):
+        """A dark box with a progress bar and percentage text."""
+
+        percent = self.download_percent
+        if percent is None:
+            return
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(20, 20, 26))
+        painter.drawRect(rect)
+        bar = QtCore.QRectF(rect)
+        bar.setWidth(rect.width() * percent / 100.0)
+        painter.setBrush(QtGui.QColor(70, 130, 210))
+        painter.drawRect(bar)
+        painter.setPen(QtGui.QColor(235, 235, 235))
+        font = painter.font()
+        font.setBold(True)
+        font.setPointSizeF(max(1.0, self.fixed_length_for_viewport(14)))
+        painter.setFont(font)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter,
+                         f'{percent}%')
+
     def paint_media_title(self, painter, rect, text):
         """Draws the media's file name below/over the item.
 
@@ -645,8 +681,12 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
         painter.drawRect(rect)
 
     def paint(self, painter, option, widget):
-        self.paint_media_title(
-            painter, self.bounding_rect_unselected(), self.filename)
+        rect = self.bounding_rect_unselected()
+        self.paint_media_title(painter, rect, self.filename)
+        self.paint_download_placeholder(painter, rect)
+        if self.download_percent is not None:
+            self.paint_selectable(painter, option, widget)
+            return
         if abs(painter.combinedTransform().m11()) < 2:
             # We want image smoothing, but only for images where we
             # are not zoomed in a lot. This is to ensure that for
@@ -3227,6 +3267,10 @@ class XRefVideoItem(XRefItemMixin, QtWidgets.QGraphicsItem):
     def paint(self, painter, option, widget):
         rect = self.bounding_rect_unselected()
         self.paint_media_title(painter, rect, self.filename)
+        if self.download_percent is not None:
+            self.paint_download_placeholder(painter, rect)
+            self.paint_selectable(painter, option, widget)
+            return
         if self._frame is not None and not self._frame.isNull():
             painter.drawImage(rect, self._frame)
         else:

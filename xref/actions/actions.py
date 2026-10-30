@@ -283,11 +283,6 @@ actions = ActionList([
         callback='on_action_collab_web_link',
     ),
     Action(
-        id='collab_web_link_public',
-        text='Create Web Link (&Internet)',
-        callback='on_action_collab_web_link_public',
-    ),
-    Action(
         id='collab_leave',
         text='&Stop Sharing',
         callback='on_action_collab_leave',
