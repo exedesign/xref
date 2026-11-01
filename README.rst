@@ -15,6 +15,88 @@ extended with video playback, multi-page PDFs, node-style links between
 references, a pen for notes and sketches, shared boards and a Turkish
 interface.
 
+XRef — Görseller, Videolar ve Fikirler İçin Referans Tahtası (Türkçe)
+======================================================================
+
+XRef ile referans görsellerinizi, videolarınızı, PDF'lerinizi ve 3D
+modellerinizi hızla düzenleyebilir, yaratırken yanınızda tutabilirsiniz.
+Sade arayüzü, yaratıcı sürecinizin önüne geçmemek için tasarlandı.
+
+Öne Çıkanlar
+------------
+
+* Referans medya: görseller (PNG, JPG, WebP, GIF, ...), videolar (MP4, MOV,
+  WebM, ...), çok sayfalı PDF'ler ve 3D modeller (OBJ, STL, PLY, GLB, glTF,
+  USDZ ve binary FBX)
+* Çerçevesiz, PureRef benzeri pencere: boş tuvale çift tıklayarak tam ekran,
+  her zaman üstte modu, kenarlardan boyutlandırma ve her kenarda 10 px'lik
+  taşıma bandı; küçült/tam ekran/kapat düğmeleri kısa bir gecikmeyle sağ
+  üstte belirir. Her sahne kendi pencere konumunu ve boyutunu tahta dosyası
+  içinde hatırlar (Ayarlar -> Görünüm -> Sahne Yerleşimlerini Hatırla)
+* Sonsuz tuval: kaydırma, yakınlaştırma, döndürme, çevirme, kırpma,
+  hizalama (rastgele dahil) ve boyut eşitleme; tuval rengi ve öge
+  tutturmalı arka plan ızgarası (çizgi veya nokta) ayarlanabilir
+* Video oynatma: DaVinci Resolve benzeri üzerine gelince tarama (kırmızı
+  oynatım kafası), hatırlanan önizleme karesi, oynat/duraklat, sessize alma
+  ve ses seviyesi; tek tıklama imlecin altındaki kareyi kilitler
+* PDF'ler video gibi çalışır: sayfaların arasında gezinmek için üzerine
+  gelin, son gösterilen sayfa hatırlanır ve tahta yeniden açıldığında
+  geri yüklenir
+* 3D modeller yazılımla işlenir (3D motoru gerekmez): modelin üzerinde
+  fareyi gezdirerek döndürün, görüntüyü sabitlemek için tıklayın,
+  yakınlaştırmak için tekerleği kullanın; ağır modeller otomatik
+  basitleştirilir, kalite ayarlanabilir (Ayarlar -> 3D Görüntüleyici)
+* Medya başlıkları: görsel, video, PDF ve modeller dosya adlarını tuvalde
+  gösterebilir (Ayarlar -> Çeşitli -> Medya Başlıklarını Göster)
+* Ögeler arası düğüm bağlantıları: bir ögeden diğerine **Shift+sürükle**
+  ya da Araçlar -> Seçili Ögeleri Bağla; bağlı alt ögeler Ctrl+sürükle ile
+  birlikte taşınabilir; bağlantıya tıklayıp seçin, Delete ile kaldırın
+* Kalem modu: serbest el notları ve eskizler (Alt çift dokunuş), fırça
+  rengi ve dört fırça boyu, yumuşak çizgiler, artı şekil araçları
+  (Shift ile dikdörtgenlerden kare/elipslerden daire, düz çizgiler)
+* Metin notları, saydamlık, gri tonlama ve renk aralığı görünümü
+* Çoğalt (Ctrl+D), seçimi küçük bir ofsetle kopyalar
+* Sürükle-bırak: görsel, video, PDF, 3D model, tahta, metin, HTML ve
+  bağlantılar; seçimi pencerenin dışına sürüklemek onu diğer uygulamalara
+  kopyalar
+* Paylaşılan tahtalar: oturum koduyla yerel ağ üzerinden (IP adresi
+  gerekmez) — kimlik doğrulamalı, şifreli, sunucu onaylı; sunucu ayrılırsa
+  oturum başka bir eşte devam eder. *Web Bağlantısı Oluştur* herhangi bir
+  tarayıcıda **canlı WebRTC aynası** açar: misafirler tahtayı video olarak
+  görür, kendi fare ve klavyeleriyle yönetir, rastgele bir misafir adı
+  alır (adları sunucunun masaüstünde imleçlerinde görünür) ve medya
+  dosyalarını doğrudan tarayıcıya bırakabilir — her yükleme tahtada bir
+  ilerleme kutusu gösterir. Misafirler yalnızca kendi oluşturdukları
+  ögeleri silebilir. *Web Bağlantısı Oluştur (İnternet)* tahtayı yerel ağ
+  dışına açar (localhost.run tüneli)
+* Türkçe ve İngilizce arayüz (Ayarlar -> Çeşitli -> Dil)
+* Ayarlanabilir aralıkla otomatik kaydetme
+
+Kurulum (Windows)
+-----------------
+
+**Windows**: `Releases <https://github.com/exedesign/xref/releases>`_
+sayfasından tek dosyalık ``XRef-<sürüm>.exe`` dosyasını indirin ve
+çalıştırın — kuruluma gerek yoktur.
+
+Kurulum (Python)
+----------------
+
+XRef Windows, Linux ve macOS üzerinde çalışır; Python 3.9 - 3.12 ve PyQt6
+gerekir.
+
+.. code-block:: console
+
+   pip install git+https://github.com/exedesign/xref.git
+   xref
+
+Kaynak koddan çalıştırmak için:
+
+.. code-block:: console
+
+   pip install -r requirements/dev.txt
+   python -m xref
+
 Features
 --------
 
