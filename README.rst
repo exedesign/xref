@@ -42,9 +42,9 @@ Features
   (Settings -> 3D Viewer)
 * Media titles: images, videos, PDFs and models can show their file name on
   the canvas (Settings -> Miscellaneous -> Show Media Titles)
-* Node-editor style links between items: drag from the port on the item's edge,
-  or use Tools -> Link Selected Items; linked children can be moved together
-  with Ctrl+drag
+* Node-editor style links between items: **Shift+drag** from one item to
+  another, or use Tools -> Link Selected Items; linked children can be moved
+  together with Ctrl+drag; click a link to select it, Delete removes it
 * Pen mode for freehand notes and sketches (Alt double-tap): brush colour and
   four brush sizes, smooth strokes, plus shape tools (rectangles, ellipses
   with Shift for squares/circles, straight lines)
@@ -55,19 +55,26 @@ Features
   applications
 * Shared boards over the local network, paired with a session code (no IP
   addresses): authenticated, encrypted, with host approval, and the session
-  continues on another peer if the host goes away; a Web Link
-  (Collaborate -> Create Web Link) lets anyone join and edit the board in a
-  browser, live, without installing anything; media files can be dropped
-  straight into the browser view, and Create Web Link (Internet) exposes
-  the board outside the local network through a plain-SSH tunnel
-  (localhost.run)
+  continues on another peer if the host goes away. *Create Web Link*
+  (Collaborate menu) opens a **live WebRTC mirror** of the board in any
+  browser: guests see the canvas as video, control it with their own mouse
+  and keyboard, get a random guest name (shown on the host's desktop at
+  their cursor) and can drop media files straight into the browser - each
+  upload shows a progress placeholder on the board. Guests may only delete
+  the items they created themselves. *Create Web Link (Internet)* exposes the
+  board outside the local network through a plain-SSH tunnel (localhost.run)
 * Turkish and English interface (Settings -> Miscellaneous -> Language)
 * Autosave with a configurable interval
 
 Installation
 ------------
 
-XRef runs on Windows, Linux and macOS and needs Python 3.9 - 3.12 with PyQt6.
+**Windows**: download the standalone ``XRef-<version>-windows-x86_64.exe``
+from the `Releases <https://github.com/exedesign/xref/releases>`_ page and
+run it - no installation required.
+
+XRef also runs on Windows, Linux and macOS and needs Python 3.9 - 3.12 with
+PyQt6.
 
 .. code-block:: console
 

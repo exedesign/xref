@@ -20,7 +20,18 @@
     </screenshots>
 
     <releases>
-        <!-- <release version="0.3.4-dev" date="unreleased"></release> -->
+        <release version="0.4.0" date="2026-11-02">
+            <description>
+                <p>Live WebRTC web mirror: browser guests see the board as
+                video and control it with their own mouse and keyboard,
+                get random guest names shown on the host's desktop, can
+                drop media (with upload progress placeholders) and may
+                only delete the items they created. Desktop: media titles
+                and link decorations scale with the zoom, node ports
+                removed in favour of Shift+drag linking, debounced scene
+                recalculation for smoother drawing.</p>
+            </description>
+        </release>
         <release version="0.3.3" date="2024-05-05"></release>
         <release version="0.3.2" date="2024-01-21"></release>
         <release version="0.3.1" date="2023-12-10"></release>

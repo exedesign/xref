@@ -23,8 +23,49 @@
   desktop session and the other peers. Needs the optional aiohttp
   package.
 
-0.4.0-dev (unreleased)
-======================
+0.4.0 (2026-11-02)
+==================
+
+Web mirror: live board in the browser
+-------------------------------------
+
+* The browser view is now a **live WebRTC mirror** of the desktop
+  board: video of the canvas plus remote mouse/keyboard input, so every
+  desktop feature works from the browser unmodified. The stream is
+  paced to 15 fps and only one mirror server runs per session.
+* The browser gets its own toolbar: select/text/pen tools, camera zoom,
+  fit-to-scene and browser fullscreen. Text is typed directly onto the
+  board (Enter commits, Escape cancels); the pen drives the desktop
+  draw mode. Desktop-only gestures (Ctrl-shortcuts such as Ctrl+Z, the
+  context menu, double-click fullscreen) are deliberately not mirrored.
+* Every browser guest receives a random guest name (e.g. "Kartal-347");
+  the desktop shows that name as a coloured label following the guest's
+  cursor.
+* Guest ownership: media uploaded from the browser (images, videos,
+  PDFs, models), text typed there and pen strokes drawn there belong to
+  that guest - and only they may delete them. The host's and other
+  guests' items are protected.
+* Dropping a file into the browser shows an aspect-correct placeholder
+  box with an upload percentage at the drop point while the bytes
+  transfer.
+* Shift+drag links items from the browser (modifier keys are forwarded
+  with the input events).
+
+Desktop
+-------
+
+* Media titles and link decorations (sockets, arrow heads, curves) now
+  scale proportionally with the zoom instead of staying a fixed size
+  and overgrowing zoomed-out media.
+* The node-editor link ports (the glowing discs on item edges) were
+  removed; **Shift+drag** between items remains the linking gesture and
+  links can still be clicked to select and delete.
+* Performance: scene-rectangle recalculation is debounced (it used to
+  run on every mouse step while drawing or dragging) and unchanged
+  video frames are no longer re-encoded.
+
+0.4.0-dev
+=========
 
 Renamed to XRef
 ---------------

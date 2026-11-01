@@ -15,7 +15,7 @@
 
 APPNAME = 'XRef'
 APPNAME_FULL = f'{APPNAME} Reference Board'
-VERSION = '0.4.0-dev'
+VERSION = '0.4.0'
 WEBSITE = 'https://github.com/exedesign/xref'
 # The original BeeRef copyright stays, as required by the GPL
 COPYRIGHT = ('Based on BeeRef, Copyright (C) 2021-2024 Rebecca Breu; '\
