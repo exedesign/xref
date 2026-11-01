@@ -279,8 +279,10 @@ actions = ActionList([
     ),
     Action(
         id='collab_web_link',
-        text='Create &Web Link',
+        text='&Internet Sharing',
+        checkable=True,
         callback='on_action_collab_web_link',
+        group='active_when_collab',
     ),
     Action(
         id='collab_leave',

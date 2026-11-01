@@ -53,6 +53,9 @@ class WebBridge(QtCore.QObject):
         self.runner = None
         self.port = None
         self._loop = None
+        # Precomputed on the Qt thread; the server thread only reads these
+        self.snapshot_json = '{}'
+        self.pending_assets = []
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -75,6 +78,7 @@ class WebBridge(QtCore.QObject):
             app = web.Application()
             app.router.add_get('/', self._handle_index)
             app.router.add_get('/ws', self._handle_ws)
+            app.router.add_get('/state', self._handle_state)
             self.runner = web.AppRunner(app)
             loop.run_until_complete(self.runner.setup())
             site = web.TCPSite(self.runner, '0.0.0.0', port)
@@ -94,7 +98,34 @@ class WebBridge(QtCore.QObject):
         self.port = result['port']
         if self.port:
             self.web_message.connect(self._on_client_message)
+            # Prime the cache right away (start() runs on the Qt thread)
+            self.refresh_cache()
+            # Keep the snapshot and pending assets fresh from the Qt
+            # thread; the server thread must never touch the scene
+            self._refresh_timer = QtCore.QTimer()
+            self._refresh_timer.timeout.connect(self.refresh_cache)
+            self._refresh_timer.start(5000)
         return self.port
+
+    def refresh_cache(self):
+        """Recomputes snapshot/asset data (runs on the Qt thread).
+
+        Thumbnails are cached per pixmap, so only the first pass is
+        expensive; subsequent refreshes are cheap dictionary lookups.
+        """
+
+        try:
+            snapshot = self.session.web_snapshot()
+            text = json.dumps(snapshot, separators=(',', ':'))
+            assets = self.session.web_pending_assets()
+            self.snapshot_json = text
+            self.pending_assets = assets
+        except RuntimeError:  # scene already gone
+            pass
+        except Exception as e:  # noqa: BLE001 - keep old snapshot
+            logger.warning(
+                f'Web snapshot refresh failed: '
+                f'{type(e).__name__}: {e}')
 
     def stop(self):
         if self._loop is not None:
@@ -107,7 +138,21 @@ class WebBridge(QtCore.QObject):
 
     async def _handle_index(self, request):
         from xref.web_client import CLIENT_HTML
-        return web.Response(text=CLIENT_HTML, content_type='text/html')
+        return web.Response(
+            text=CLIENT_HTML, content_type='text/html',
+            headers={'Cache-Control': 'no-store, no-cache, must-revalidate',
+                     'Pragma': 'no-cache'})
+
+    async def _handle_state(self, request):
+        """The precomputed snapshot for HTTP polling fallback clients."""
+
+        if request.query.get('code', '') != self.code:
+            return web.json_response(
+                {'type': 'error', 'message': 'wrong session code'},
+                status=403)
+        return web.Response(text=self.snapshot_json or '{}',
+                            content_type='application/json',
+                            headers={'Cache-Control': 'no-store'})
 
     async def _handle_ws(self, request):
         ws = web.WebSocketResponse(max_msg_size=64 * 1024 * 1024)
@@ -120,22 +165,27 @@ class WebBridge(QtCore.QObject):
             return ws
         self.clients.add(ws)
         try:
-            # The snapshot is precomputed on the Qt thread and refreshed
-            # whenever the board changes
-            snapshot = self.session._web_cache or \
-                self.session.web_snapshot()
-            if snapshot:
-                await ws.send_str(json.dumps(snapshot))
-            # Large media (over the inline limit) follows in chunks, so
-            # the browser ends up with the same board as the desktop
-            assets = self.session.web_pending_assets()
-            for data, name, kind in assets:
-                await self._stream_asset(ws, data, name, kind)
+            # Snapshot and assets are precomputed on the Qt thread
+            try:
+                await ws.send_str(self.snapshot_json or '{}')
+                for data, name, kind in self.pending_assets:
+                    await self._stream_asset(ws, data, name, kind)
+            except (ConnectionResetError, ConnectionError, RuntimeError):
+                return ws
             async for msg in ws:
                 if msg.type.name == 'TEXT':
                     try:
                         payload = json.loads(msg.data)
                     except ValueError:
+                        continue
+                    if payload.get('type') == 'refresh':
+                        # Serve the precomputed snapshot (Qt thread keeps
+                        # it fresh via a timer)
+                        try:
+                            await ws.send_str(self.snapshot_json or '{}')
+                        except (ConnectionResetError, ConnectionError,
+                                RuntimeError):
+                            break
                         continue
                     # Hand the op to the Qt thread via a signal
                     self.web_message.emit(payload)

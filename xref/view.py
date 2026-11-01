@@ -240,19 +240,40 @@ class XRefGraphicsView(MainControlsMixin,
         self.parent.setWindowTitle(title)
 
     def on_scene_changed(self, region):
-        if not self.scene.items():
-            logger.debug('No items in scene')
-            self.setTransform(QtGui.QTransform())
-            self.welcome_overlay.setFocus()
-            self.clearFocus()
-            self.welcome_overlay.show()
-            self.actiongroup_set_enabled('active_when_items_in_scene', False)
+        empty = not self.scene.items()
+        # Focus/overlay work only on state transitions: doing this on
+        # every change (each draw point, each drag step) floods the
+        # event loop with focus events while the mirror streams
+        if empty != getattr(self, '_scene_was_empty', False):
+            self._scene_was_empty = empty
+            if empty:
+                logger.debug('No items in scene')
+                self.setTransform(QtGui.QTransform())
+                self.welcome_overlay.setFocus()
+                self.clearFocus()
+                self.welcome_overlay.show()
+                self.actiongroup_set_enabled(
+                    'active_when_items_in_scene', False)
+            else:
+                self.setFocus()
+                self.welcome_overlay.clearFocus()
+                self.welcome_overlay.hide()
+                self.actiongroup_set_enabled(
+                    'active_when_items_in_scene', True)
+        # Scene rect recalc walks all item bounding boxes; during
+        # drawing/dragging it would run dozens of times per second.
+        # Coalesce into one deferred run.
+        if not hasattr(self, '_scene_rect_timer'):
+            timer = QtCore.QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(80)
+            timer.timeout.connect(self.recalc_scene_rect)
+            self._scene_rect_timer = timer
+        if empty:
+            self._scene_rect_timer.stop()
+            self.recalc_scene_rect()
         else:
-            self.setFocus()
-            self.welcome_overlay.clearFocus()
-            self.welcome_overlay.hide()
-            self.actiongroup_set_enabled('active_when_items_in_scene', True)
-        self.recalc_scene_rect()
+            self._scene_rect_timer.start()
 
     def on_can_redo_changed(self, can_redo):
         self.actiongroup_set_enabled('active_when_can_redo', can_redo)
@@ -264,7 +285,9 @@ class XRefGraphicsView(MainControlsMixin,
         self.update_window_title()
 
     def on_context_menu(self, point):
-        self.context_menu.exec(self.mapToGlobal(point))
+        # popup (non-blocking) instead of exec: a modal exec would
+        # freeze the mirror stream while the menu is open
+        self.context_menu.popup(self.mapToGlobal(point))
 
     def get_supported_image_formats(self, cls):
         formats = []
@@ -1526,6 +1549,11 @@ class XRefGraphicsView(MainControlsMixin,
         self.update_window_title()
         self.actiongroup_set_enabled('active_when_collab',
                                      self.collab.is_active())
+        if not self.collab.is_active():
+            # Session over: reset and disable the internet toggle
+            action = actions.actions['collab_web_link'].qaction
+            action.setChecked(False)
+            action.setEnabled(False)
         lowered = status.lower()
         if ('could not' in lowered or 'error' in lowered
                 or 'denied' in lowered):
@@ -1551,6 +1579,110 @@ class XRefGraphicsView(MainControlsMixin,
         self.on_action_fit_scene()
         self.update_window_title()
 
+    def _share_board_dialog(self, code):
+        """The share dialog: session code plus the internet toggle."""
+
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle(tr('Share Board'))
+        dlg.setModal(False)
+        layout = QtWidgets.QVBoxLayout(dlg)
+
+        layout.addWidget(QtWidgets.QLabel(
+            tr('This board is now shared. Session code:')))
+        code_box = QtWidgets.QLineEdit(
+            collab.format_code(code))
+        code_box.setReadOnly(True)
+        layout.addWidget(code_box)
+        copy_code = QtWidgets.QPushButton(tr('Copy Code'))
+        layout.addWidget(copy_code)
+
+        layout.addWidget(QtWidgets.QLabel(
+            tr('Desktop users join with Collaborate -> Join Shared Board. '
+               'The code has also been copied to the clipboard.')))
+
+        line = QtWidgets.QFrame()
+        line.setFrameShape(QtWidgets.QFrame.Shape.HLine)
+        layout.addWidget(line)
+
+        toggle = QtWidgets.QCheckBox(tr('Internet Sharing'))
+        toggle.setChecked(False)
+        layout.addWidget(toggle)
+
+        link_label = QtWidgets.QLabel('')
+        link_label.setWordWrap(True)
+        link_label.setTextInteractionFlags(
+            QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+        link_label.setVisible(False)
+        layout.addWidget(link_label)
+        copy_link = QtWidgets.QPushButton(tr('Copy Link'))
+        copy_link.setVisible(False)
+        layout.addWidget(copy_link)
+        status = QtWidgets.QLabel('')
+        status.setVisible(False)
+        layout.addWidget(status)
+
+        def do_copy_code():
+            QtWidgets.QApplication.clipboard().setText(code)
+            copy_code.setText(tr('Copied!'))
+
+        copy_code.clicked.connect(do_copy_code)
+
+        def do_copy_link():
+            QtWidgets.QApplication.clipboard().setText(link_label.text())
+            copy_link.setText(tr('Copied!'))
+
+        copy_link.clicked.connect(do_copy_link)
+
+        def on_toggle(checked):
+            if checked:
+                status.setText(tr('Opening internet tunnel...'))
+                status.setVisible(True)
+                QtWidgets.QApplication.processEvents()
+                link = self.collab.start_web_sharing(public=True)
+                if link and '.lhr.life' in link:
+                    QtWidgets.QApplication.clipboard().setText(link)
+                    link_label.setText(link)
+                    link_label.setVisible(True)
+                    copy_link.setVisible(True)
+                    copy_link.setText(tr('Copy Link'))
+                    status.setText(
+                        tr('Shared over the internet; the link is also in '
+                           'the clipboard.'))
+                else:
+                    toggle.setChecked(False)
+                    link_label.setVisible(False)
+                    copy_link.setVisible(False)
+                    if link:
+                        # tunnel failed, local link as fallback
+                        QtWidgets.QApplication.clipboard().setText(link)
+                        status.setText(tr(
+                            'The internet tunnel could not be opened '
+                            '(the localhost.run service may be busy - try '
+                            'again in a moment). A local-network link was '
+                            'copied instead: {link}', link=link))
+                    else:
+                        status.setText(tr(
+                            'Web sharing needs the aiohttp package'))
+            else:
+                tunnel = getattr(self.collab, 'web_tunnel', None)
+                if tunnel is not None:
+                    tunnel.stop()
+                    self.collab.web_tunnel = None
+                link_label.setVisible(False)
+                copy_link.setVisible(False)
+                status.setText(
+                    tr('Internet sharing stopped; still sharing on the '
+                       'local network.'))
+                status.setVisible(True)
+
+        toggle.toggled.connect(on_toggle)
+
+        close = QtWidgets.QPushButton(tr('Close'))
+        layout.addWidget(close)
+        close.clicked.connect(dlg.close)
+        dlg.show()
+        return dlg
+
     def on_action_collab_host(self):
         """Shares this board; peers join with the generated session code."""
 
@@ -1568,19 +1700,14 @@ class XRefGraphicsView(MainControlsMixin,
             widgets.XRefNotification(self, self.collab.status)
             return
         QtWidgets.QApplication.clipboard().setText(code)
-        QtWidgets.QMessageBox.information(
-            self, tr('Share Board'),
-            tr('This board is now shared.\n\n'
-               'Session code:\n\n    {code}\n\n'
-               '(The code has been copied to the clipboard.)\n\n'
-               'Other users start XRef, choose Collaborate -> Join Shared '
-               'Board and type this code. They do not need to know your IP '
-               'address.\n\n'
-               'The code is never sent over the network, the connection is '
-               'encrypted, and you will be asked before anyone joins.\n\n'
-               'Note: the board is not saved automatically - use File -> '
-               'Save As to keep a copy.', code=code))
         self.update_window_title()
+        # Local-network web sharing comes on automatically; the dialog's
+        # internet toggle adds the public tunnel
+        link = self.collab.start_web_sharing(public=False)
+        if link:
+            action = actions.actions['collab_web_link'].qaction
+            action.setEnabled(True)
+        self._share_board_dialog(code)
 
     def approve_collab_peer(self, name, address):
         """Asks whether a peer that knows the code may join."""
@@ -1667,31 +1794,60 @@ class XRefGraphicsView(MainControlsMixin,
             self, tr('Peers are asked for approval before joining')
             if checked else tr('Peers can join without asking'))
 
-    def on_action_collab_web_link(self):
-        """Shares the board to browsers, over the internet when possible."""
+    def on_action_collab_web_link(self, checked):
+        """Toggles public internet sharing for the shared board.
+
+        On: opens the localhost.run tunnel, copies the public link to
+        the clipboard and shows it in a copyable dialog. Off: closes
+        the tunnel; local-network sharing keeps running.
+        """
 
         if not self.collab.is_active():
             widgets.XRefNotification(
                 self, tr('Share the board first (Collaborate -> '
                          'Share Board)'))
+            actions.actions['collab_web_link'].qaction.setChecked(False)
             return
-        widgets.XRefNotification(
-            self, tr('Opening internet tunnel...'))
-        link = self.collab.start_web_sharing(public=True)
-        if link is None:
+        if checked:
             widgets.XRefNotification(
-                self, tr('Web sharing needs the aiohttp package'))
-            return
-        if '/lhr.' not in link:
-            widgets.XRefNotification(
-                self, tr('Internet tunnel could not be opened; '
-                         'sharing on the local network instead: {link}',
-                         link=link))
+                self, tr('Opening internet tunnel...'))
+            link = self.collab.start_web_sharing(public=True)
+            if link is None:
+                widgets.XRefNotification(
+                    self, tr('Web sharing needs the aiohttp package'))
+                actions.actions['collab_web_link'].qaction.setChecked(False)
+                return
+            if '.lhr.life' not in link:
+                # Tunnel failed; keep the toggle off and offer the
+                # local-network link instead
+                actions.actions['collab_web_link'].qaction.setChecked(False)
+                QtWidgets.QApplication.clipboard().setText(link)
+                QtWidgets.QMessageBox.warning(
+                    self, tr('Internet Sharing'),
+                    tr('The internet tunnel could not be opened '
+                       '(the localhost.run service may be busy - try '
+                       'again in a moment).\n\n'
+                       'The board is shared on the local network in the '
+                       'meantime; this link has been copied:\n\n{link}',
+                       link=link))
+                return
+            QtWidgets.QApplication.clipboard().setText(link)
+            QtWidgets.QMessageBox.information(
+                self, tr('Internet Sharing'),
+                tr('The board is now shared over the internet.\n\n'
+                   'This link has been copied to the clipboard - anyone '
+                   'who opens it sees the board in a browser:\n\n{link}\n\n'
+                   'The session code in the link keeps the board private. '
+                   'Turn the toggle off to stop internet sharing.',
+                   link=link))
         else:
+            tunnel = getattr(self.collab, 'web_tunnel', None)
+            if tunnel is not None:
+                tunnel.stop()
+                self.collab.web_tunnel = None
             widgets.XRefNotification(
-                self, tr('Web link copied to clipboard: {link}', link=link))
-        clipboard = QtWidgets.QApplication.clipboard()
-        clipboard.setText(link)
+                self, tr('Internet sharing stopped; still sharing on the '
+                         'local network'))
 
     def on_action_collab_leave(self):
         if not self.collab.is_active():

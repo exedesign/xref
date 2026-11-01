@@ -274,8 +274,9 @@ class XRefItemMixin(SelectableMixin):
     def paint_media_title(self, painter, rect, text):
         """Draws the media's file name below/over the item.
 
-        Only shown when the user turned media titles on; the label keeps a
-        readable size on screen regardless of the zoom level.
+        Only shown when the user turned media titles on. The label is
+        sized in item units, so it scales with the media itself: zooming
+        in/out grows/shrinks it exactly like the media above it.
         """
 
         if not text:
@@ -292,9 +293,9 @@ class XRefItemMixin(SelectableMixin):
             return
         if not show:
             return
-        height = self.fixed_length_for_viewport(18)
+        height = 18
         font = painter.font()
-        font.setPointSizeF(max(1.0, self.fixed_length_for_viewport(9)))
+        font.setPointSizeF(9)
         painter.setFont(font)
         band = QtCore.QRectF(rect.left(), rect.bottom(),
                              rect.width(), height)
@@ -302,7 +303,7 @@ class XRefItemMixin(SelectableMixin):
         painter.setBrush(QtGui.QColor(0, 0, 0, 140))
         painter.drawRect(band)
         painter.setPen(QtGui.QColor(235, 235, 235))
-        margin = self.fixed_length_for_viewport(4)
+        margin = 4
         painter.drawText(band.adjusted(margin, 0, -margin, 0),
                          Qt.AlignmentFlag.AlignVCenter
                          | Qt.AlignmentFlag.AlignLeft,

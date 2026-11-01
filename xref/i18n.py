@@ -406,6 +406,54 @@ TRANSLATIONS = {
         'Close window': 'Pencereyi kapat',
         'Create Web Link (&Internet)': 'Web Bağlantısı Oluştur (&İnternet)',
         'Opening internet tunnel...': 'İnternet tüneli açılıyor...',
+        '&Internet Sharing': '&İnternet Paylaşımı',
+        'Copy Code': 'Kodu Kopyala',
+        'Copy Link': 'Bağlantıyı Kopyala',
+        'Copied!': 'Kopyalandı!',
+        'Close': 'Kapat',
+        'This board is now shared. Session code:':
+            'Bu pano artık paylaşıyor. Oturum kodu:',
+        'Desktop users join with Collaborate -> Join Shared Board. '
+        'The code has also been copied to the clipboard.':
+            'Masaüstü kullanıcıları İşbirliği -> Paylaşılan Panoya Katıl '
+            'ile katılır. Kod ayrıca panoya kopyalandı.',
+        'Shared over the internet; the link is also in '
+        'the clipboard.':
+            'İnternet üzerinden paylaşıldı; bağlantı panoda da var.',
+        'The internet tunnel could not be opened '
+        '(the localhost.run service may be busy - try '
+        'again in a moment). A local-network link was '
+        'copied instead: {link}':
+            'İnternet tüneli açılamadı (localhost.run hizmeti meşgul '
+            'olabilir - birazdan tekrar deneyin). Bunun yerine yerel ağ '
+            'bağlantısı kopyalandı: {link}',
+        'When checked the board is shared to browsers over the '
+        'internet; the link is copied to the clipboard':
+            'İşaretliyken pano internet üzerinden tarayıcılara '
+            'paylaşılır; bağlantı panoya kopyalanır',
+        'Internet Sharing': 'İnternet Paylaşımı',
+        'The board is now shared over the internet.\n\n'
+        'This link has been copied to the clipboard - anyone '
+        'who opens it sees the board in a browser:\n\n{link}\n\n'
+        'The session code in the link keeps the board private. '
+        'Turn the toggle off to stop internet sharing.':
+            'Pano artık internet üzerinden paylaşılıyor.\n\n'
+            'Bu bağlantı panoya kopyalandı - açan herkes panoyu '
+            'tarayıcıda görür:\n\n{link}\n\n'
+            'Bağlantıdaki oturum kodu panoyu özel tutar. İnternet '
+            'paylaşımını durdurmak için düğmeyi kapatın.',
+        'The internet tunnel could not be opened '
+        '(the localhost.run service may be busy - try '
+        'again in a moment).\n\n'
+        'The board is shared on the local network in the '
+        'meantime; this link has been copied:\n\n{link}':
+            'İnternet tüneli açılamadı (localhost.run hizmeti meşgul '
+            'olabilir - birazdan tekrar deneyin).\n\n'
+            'Bu arada pano yerel ağda paylaşılıyor; bu bağlantı '
+            'kopyalandı:\n\n{link}',
+        'Internet sharing stopped; still sharing on the '
+        'local network':
+            'İnternet paylaşımı durduruldu; yerel ağda paylaşıma devam',
         'Internet tunnel could not be opened; sharing on the local network instead: {link}':
             'İnternet tüneli açılamadı; yerel ağda paylaşılıyor: {link}',
         'Create &Web Link': '&Web Bağlantısı Oluştur',

@@ -41,12 +41,16 @@ def test_web_sharing_requires_an_active_session(view):
 def test_web_page_is_served(host_session):
     link = host_session.start_web_sharing()
     page = urllib.request.urlopen(link.split('#')[0]).read().decode()
-    assert 'XRef web board' in page
-    assert 'WebSocket' in page
+    # The WebRTC mirror page is served when aiortc is available,
+    # otherwise the ops-based board page
+    assert ('XRef Mirror' in page and 'RTCPeerConnection' in page) \
+        or ('XRef web board' in page and 'WebSocket' in page)
 
 
 def test_snapshot_reaches_a_browser_client(host_session, qapp):
     link = host_session.start_web_sharing()
+    if getattr(host_session, 'stream_server', None):
+        pytest.skip('WebRTC mirror active; ops WS not served')
 
     async def client():
         base = link.split('#')[0]
@@ -66,6 +70,8 @@ def test_snapshot_reaches_a_browser_client(host_session, qapp):
 
 def test_wrong_code_is_rejected(host_session):
     link = host_session.start_web_sharing()
+    if getattr(host_session, 'stream_server', None):
+        pytest.skip('WebRTC mirror active; ops WS not served')
 
     async def client():
         base = link.split('#')[0]
@@ -84,6 +90,8 @@ def test_wrong_code_is_rejected(host_session):
 
 def test_browser_ops_reach_the_host(host_session, qapp):
     link = host_session.start_web_sharing()
+    if getattr(host_session, 'stream_server', None):
+        pytest.skip('WebRTC mirror active; ops WS not served')
 
     async def client():
         base = link.split('#')[0]

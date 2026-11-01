@@ -26,7 +26,19 @@ a = Analysis(
         (join('xref', 'assets', '*.svg'), join('xref', 'assets')),
         (join('xref', 'assets', '*.ico'), join('xref', 'assets')),
         (join('xref', 'assets', '*.icns'), join('xref', 'assets'))],
-    hiddenimports=[],
+    # The WebRTC mirror stack is imported lazily/conditionally, so
+    # PyInstaller's static analysis misses it
+    hiddenimports=[
+        'aiortc',
+        'aiortc.mediastreams',
+        'aiortc.rtcsctptransport',
+        'aioice',
+        'av',
+        'av.logging',
+        'numpy',
+        'cffi',
+        'pyee',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

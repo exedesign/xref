@@ -455,39 +455,19 @@ def test_video_controls_play_pause_and_seek(shown_view, videofilename,
     assert 800 <= item._display_position <= 1200
     item.release_player()
 
-# -- Node linking: port drag, menu action --------------------------------
-
-def port_scene_pos(view, item):
-    return view.scene.link_port_pos(item)
-
+# -- Node linking: shift-drag, menu action --------------------------------
 
 def test_drag_from_link_port_creates_link(shown_view):
     view = shown_view
     parent = add_image(view, 0, 0)
     child = add_image(view, 300, 0)
-    # Ports are shown for selected items, so select the parent first
-    parent.setSelected(True)
-    view.on_selection_changed()
-    start = port_scene_pos(view, parent)
-    drag(view, start, QtCore.QPointF(350, 50))
+    # Shift+drag from the parent to the child creates the link
+    start = parent.pos() + parent.boundingRect().center()
+    drag(view, start, QtCore.QPointF(350, 50),
+         mods=Qt.KeyboardModifier.ShiftModifier)
     assert view.scene.links == [(parent, child)]
     assert parent.pos() == QtCore.QPointF(0, 0)
     assert child.pos() == QtCore.QPointF(300, 0)
-
-
-def test_link_ports_are_drawn(shown_view):
-    view = shown_view
-    item = add_image(view, 0, 0)
-    item.setSelected(True)
-    view.on_selection_changed()
-    img = QtGui.QImage(view.viewport().size(),
-                       QtGui.QImage.Format.Format_ARGB32)
-    img.fill(Qt.GlobalColor.black)
-    painter = QtGui.QPainter(img)
-    view.render(painter)
-    painter.end()
-    port = img.pixelColor(vpos(view, port_scene_pos(view, item)).toPoint())
-    assert port.blue() > 120 and port.alpha() > 0
 
 
 def test_link_action_links_two_selected_items(shown_view):
@@ -505,12 +485,12 @@ def test_link_does_not_toggle_off_when_repeated(shown_view):
     view = shown_view
     parent = add_image(view, 0, 0)
     child = add_image(view, 300, 0)
-    parent.setSelected(True)
-    view.on_selection_changed()
-    start = port_scene_pos(view, parent)
-    drag(view, start, QtCore.QPointF(350, 50))
+    start = parent.pos() + parent.boundingRect().center()
+    drag(view, start, QtCore.QPointF(350, 50),
+         mods=Qt.KeyboardModifier.ShiftModifier)
     assert len(view.scene.links) == 1
-    drag(view, start, QtCore.QPointF(350, 50))
+    drag(view, start, QtCore.QPointF(350, 50),
+         mods=Qt.KeyboardModifier.ShiftModifier)
     assert len(view.scene.links) == 1
 
 
@@ -771,10 +751,9 @@ def test_port_drag_to_empty_space_disconnects(shown_view):
     parent = add_image(view, 0, 0)
     child = add_image(view, 320, 0)
     view.scene.add_link(parent, child)
-    parent.setSelected(True)
-    view.on_selection_changed()
-    start = view.scene.link_port_pos(parent, QtCore.QPointF(50, 50))
-    drag(view, start, empty_spot(view))
+    start = parent.pos() + parent.boundingRect().center()
+    drag(view, start, empty_spot(view),
+         mods=Qt.KeyboardModifier.ShiftModifier)
     assert view.scene.links == []
 
 

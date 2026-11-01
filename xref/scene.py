@@ -69,8 +69,9 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
         # screen pixels)
         self.pen_color = XRefDrawItem.DEFAULT_COLOR
         self.pen_width = XRefDrawItem.DEFAULT_WIDTH
-        # Item under the mouse (used to show the link port)
-        self._hover_link_item = None
+        # Web guest currently drawing via the mirror (their strokes
+        # are tagged so only they may delete them); None = desktop
+        self.web_drawer = None
         self._port_cursor_active = False
         self._mouse_scene_pos = None
         # The link selected by clicking it (Delete removes it)
@@ -361,6 +362,9 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
             # on screen regardless of the current zoom level
             stroke_width=self.pen_width / self.pen_scale(),
             shape=shape)
+        # Strokes drawn through the web mirror belong to that guest
+        if self.web_drawer:
+            self._draw_item._owner = self.web_drawer
         # The live stroke must not react to the mouse (it would otherwise
         # be picked up by itemAt/hover handling while drawing)
         self._draw_item.setFlags(
@@ -738,17 +742,6 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
             if isinstance(mods, Qt.KeyboardModifier) and mods & link_mods:
                 target = self.link_target_at(event.scenePos())
 
-            # Dragging from the link port of an item connects it, just
-            # like dragging a wire from a node socket
-            port_item = self.port_hit(event.scenePos())
-            if (port_item is not None
-                    and not (mods & Qt.KeyboardModifier.ControlModifier)):
-                self.active_mode = self.LINK_MODE
-                self._link_preview_origin = port_item
-                self._update_link_preview(event.scenePos())
-                event.accept()
-                return
-
             # Clicking a link selects it (Delete/Backspace removes it)
             if item_at_pos is None:
                 clicked_link = self.link_at(event.scenePos())
@@ -879,26 +872,8 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
                 end = QtCore.QPointF(tgt.center().x(), tgt.bottom())
         return QtCore.QLineF(start, end)
 
-    PORT_RADIUS = 8  # screen pixels
-    PORT_GAP = 3  # screen pixels between the item edge and the port
-
-    def port_items(self):
-        """Items whose link ports are shown: the item under the mouse plus
-        the selected items (so linking is discoverable)."""
-
-        if self.draw_mode:
-            return []
-        items = []
-        if (self._hover_link_item is not None
-                and self._hover_link_item.scene() is self
-                and not getattr(self._hover_link_item, 'is_draw', False)):
-            items.append(self._hover_link_item)
-        for item in self.selectedItems(user_only=True):
-            if (item not in items
-                    and not getattr(item, 'is_draw', False)
-                    and item.scene() is self):
-                items.append(item)
-        return items
+    PORT_RADIUS = 8  # scene units at zoom 1
+    PORT_GAP = 3  # scene units between the item edge and the port
 
     def link_port_pos(self, item, ref=None):
         """Scene position of an item's link port.
@@ -909,8 +884,7 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
 
         rect = self._item_rect(item)
         center = rect.center()
-        scale = max(self._view_scale(), 0.01)
-        gap = self.PORT_GAP / scale
+        gap = self.PORT_GAP
         if ref is None:
             # No pointer reference: default to the classic output side
             return QtCore.QPointF(rect.right() + gap, center.y())
@@ -925,18 +899,6 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
             return QtCore.QPointF(center.x(), rect.bottom() + gap)
         return QtCore.QPointF(center.x(), rect.top() - gap)
 
-    def port_hit(self, scene_pos):
-        """The item whose link port is under the given position, or None."""
-
-        radius = self.PORT_RADIUS / max(self._view_scale(), 0.01)
-        best = None
-        best_distance = radius * 1.6
-        for item in self.port_items():
-            pos = self.link_port_pos(item, scene_pos)
-            distance = (pos - scene_pos).manhattanLength()
-            if distance <= best_distance:
-                best, best_distance = item, distance
-        return best
     def _view_scale(self):
         views = self.views()
         return views[0].get_scale() if views else 1
@@ -944,15 +906,14 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
     def _link_path(self, line):
         """The smooth curve drawn for a link (also used for hit testing)."""
 
-        scale = self._view_scale() or 1
         start, end = line.p1(), line.p2()
-        bend = max(abs(end.x() - start.x()), 40 / scale) * 0.5
+        bend = max(abs(end.x() - start.x()), 40) * 0.5
         if abs(end.x() - start.x()) >= abs(end.y() - start.y()):
             direction = 1 if end.x() >= start.x() else -1
             c1 = QtCore.QPointF(start.x() + bend * direction, start.y())
             c2 = QtCore.QPointF(end.x() - bend * direction, end.y())
         else:
-            bend = max(abs(end.y() - start.y()), 40 / scale) * 0.5
+            bend = max(abs(end.y() - start.y()), 40) * 0.5
             direction = 1 if end.y() >= start.y() else -1
             c1 = QtCore.QPointF(start.x(), start.y() + bend * direction)
             c2 = QtCore.QPointF(end.x(), end.y() - bend * direction)
@@ -961,7 +922,6 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
         return path, c2
 
     def _draw_link(self, painter, line, color, dashed=False, width=2.5):
-        scale = self._view_scale() or 1
         pen = QtGui.QPen(color)
         pen.setWidthF(width)
         pen.setCosmetic(True)
@@ -973,14 +933,15 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
         path, c2 = self._link_path(line)
         painter.drawPath(path)
 
-        # Sockets and arrow head (constant size on screen)
+        # Sockets and arrow head (sized in scene units, so they scale
+        # with the linked items when the view zooms)
         start, end = line.p1(), line.p2()
-        radius = 5 / scale
+        radius = 5
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(color)
         painter.drawEllipse(start, radius, radius)
         angle = math.atan2(end.y() - c2.y(), end.x() - c2.x())
-        length = 14 / scale
+        length = 14
         arrow = QtGui.QPolygonF([
             end,
             end - QtCore.QPointF(
@@ -997,7 +958,7 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
     def link_at(self, scene_pos):
         """The link whose curve passes near the given position, or None."""
 
-        tolerance = 8 / max(self._view_scale(), 0.01)
+        tolerance = 8
         for source, target in self.active_links():
             path, _ = self._link_path(self.link_line(source, target))
             stroker = QtGui.QPainterPathStroker()
@@ -1010,8 +971,6 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
         self.selected_link = link
         if link is not None:
             self.clearSelection()
-            if self._hover_link_item is not None:
-                self._hover_link_item = None
         self.update()
         # Let the view refresh its action states (Delete must be enabled
         # while a link is selected)
@@ -1071,57 +1030,7 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
                 line = QtCore.QLineF(start, self._link_preview_pos)
                 color = QtGui.QColor(0, 150, 255)
             self._draw_link(painter, line, color, dashed=True)
-        if self.active_mode != self.LINK_MODE:
-            self._draw_link_ports(painter)
         painter.restore()
-
-    def _draw_link_ports(self, painter):
-        """Draws the node-editor style link ports.
-
-        Each port is a soft glowing disc with a crisp ring and a small
-        core dot; it grows slightly when the pointer is on it.
-        """
-
-        scale = max(self._view_scale(), 0.01)
-        radius = self.PORT_RADIUS / scale
-        pointer = self._mouse_scene_pos
-        for item in self.port_items():
-            pos = self.link_port_pos(item, pointer)
-            hovered = pointer is not None and (
-                (pos - pointer).manhattanLength() <= radius * 2.2)
-            r = radius * (1.15 if hovered else 1.0)
-
-            # Soft outer glow
-            glow = QtGui.QRadialGradient(pos, r * 2.6)
-            glow.setColorAt(0.0, QtGui.QColor(120, 210, 255, 190))
-            glow.setColorAt(0.45, QtGui.QColor(70, 165, 255, 80))
-            glow.setColorAt(1.0, QtGui.QColor(70, 165, 255, 0))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QtGui.QBrush(glow))
-            painter.drawEllipse(pos, r * 2.6, r * 2.6)
-
-            # Filled disc
-            disc = QtGui.QRadialGradient(
-                QtCore.QPointF(pos.x() - r * 0.3, pos.y() - r * 0.35),
-                r * 1.4)
-            disc.setColorAt(0.0, QtGui.QColor(235, 250, 255))
-            disc.setColorAt(0.55, QtGui.QColor(60, 165, 255))
-            disc.setColorAt(1.0, QtGui.QColor(25, 110, 205))
-            painter.setBrush(QtGui.QBrush(disc))
-            painter.drawEllipse(pos, r, r)
-
-            # Crisp outline
-            ring = QtGui.QPen(QtGui.QColor(225, 245, 255, 230))
-            ring.setWidthF(max(1.0, radius * 0.28))
-            ring.setCosmetic(True)
-            painter.setPen(ring)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(pos, r, r)
-
-            # Bright core so it reads as a "socket"
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QtGui.QColor(255, 255, 255, 235))
-            painter.drawEllipse(pos, r * 0.34, r * 0.34)
 
     def mouseMoveEvent(self, event):
         if self.active_mode == self.LINK_MODE:
@@ -1150,27 +1059,13 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
         if self.active_mode is None and not self.draw_mode:
             pos = event.scenePos()
             self._mouse_scene_pos = pos
-            # Show the link port for the item under the mouse
-            hover = self.link_target_at(pos)
-            if hover is None and self._hover_link_item is not None:
-                # Keep the port reachable while the pointer is on it (the
-                # port sits slightly outside the item)
-                radius = self.PORT_RADIUS / max(self._view_scale(), 0.01)
-                port = self.link_port_pos(self._hover_link_item, pos)
-                if (port - pos).manhattanLength() <= radius * 4:
-                    hover = self._hover_link_item
-            if hover is not self._hover_link_item:
-                self._hover_link_item = hover
-                self.update()
-            over_port = hover is not None and self.port_hit(pos) is not None
-            if not over_port and self.link_at(pos) is not None:
-                # Hovering a link: show that it can be clicked/removed
-                over_port = True
-            if over_port and not self._port_cursor_active:
+            # Hovering a link shows that it can be clicked/removed
+            over_link = self.link_at(pos) is not None
+            if over_link and not self._port_cursor_active:
                 self._port_cursor_active = True
                 self._set_view_cursor(
                     QtGui.QCursor(Qt.CursorShape.PointingHandCursor))
-            elif not over_port and self._port_cursor_active:
+            elif not over_link and self._port_cursor_active:
                 self._port_cursor_active = False
                 self._set_view_cursor(None)
         super().mouseMoveEvent(event)

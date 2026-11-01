@@ -58,17 +58,24 @@ def test_on_scene_changed_when_items(hide_mock, view):
     view.scale(2, 2)
     with patch('xref.view.XRefGraphicsView.recalc_scene_rect') as r:
         view.on_scene_changed(None)
-        r.assert_called_once_with()
-        hide_mock.assert_called_once_with()
+        # The recalc is debounced (timer-based) for performance; run
+        # the pending timer work directly to observe it
+        r.reset_mock()
+        view._scene_rect_timer.stop()
+        view.recalc_scene_rect()
+        r.assert_called_with()
+        hide_mock.assert_called_with()
         assert view.get_scale() == 2
 
 
 @patch('xref.widgets.welcome_overlay.WelcomeOverlay.show')
 def test_on_scene_changed_when_no_items(show_mock, view):
     view.scale(2, 2)
+    # Reset the transition state so this call counts as a change
+    view._scene_was_empty = False
     with patch('xref.view.XRefGraphicsView.recalc_scene_rect') as r:
         view.on_scene_changed(None)
-        r.assert_called()
+        r.assert_called()  # empty scene recalcs immediately
         show_mock.assert_called_once_with()
         assert view.get_scale() == 1
 

@@ -41,6 +41,7 @@ import os
 import secrets
 import socket
 import time
+import threading
 import uuid
 
 from PyQt6 import QtCore, QtGui, QtNetwork
@@ -75,7 +76,9 @@ RECOVER_RETRY_MS = 1200
 RECOVER_ATTEMPTS = 10
 # Media is shared in its *original* form. Small files travel inline with the
 # item state, larger ones are streamed in chunks.
-ASSET_INLINE_LIMIT = 4 * 1024 * 1024
+#: Media up to this size travels inline in the snapshot; larger assets
+#: stream separately in chunks (kinder to the browser and the tunnel)
+ASSET_INLINE_LIMIT = 256 * 1024
 ASSET_CHUNK_SIZE = 256 * 1024
 MAX_ASSET_SIZE = 256 * 1024 * 1024
 MAX_LINE_BYTES = 96 * 1024 * 1024
@@ -289,6 +292,60 @@ def _asset_meta(data, name, kind):
     }
 
 
+#: Longest edge of the thumbnails served to browser clients
+WEB_THUMB_SIZE = 640
+
+
+def web_thumb_bytes(item):
+    """A small JPEG preview of the item's media for browser clients.
+
+    Images get a real thumbnail; for videos a video frame is used when
+    available. Returns ``(bytes, mime)`` or ``None``.
+    """
+
+    try:
+        if item.TYPE == XRefPixmapItem.TYPE:
+            image = item.pixmap().toImage()
+        elif item.TYPE == XRefVideoItem.TYPE:
+            image = item.poster_image() if hasattr(
+                item, 'poster_image') else None
+            if image is None or image.isNull():
+                return None
+        else:
+            return None
+        if image is None or image.isNull():
+            return None
+        # Thumbnails are cached per pixmap: dragging or zooming an item
+        # must not re-encode its preview on every sync
+        cache_key = (id(item), image.cacheKey())
+        cached = _thumb_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        image = image.convertToFormat(
+            QtGui.QImage.Format.Format_RGB32)
+        longest = max(image.width(), image.height())
+        if longest > WEB_THUMB_SIZE:
+            scale = WEB_THUMB_SIZE / longest
+            image = image.scaled(
+                int(image.width() * scale), int(image.height() * scale),
+                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                QtCore.Qt.TransformationMode.SmoothTransformation)
+        buffer = QtCore.QBuffer()
+        buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
+        image.save(buffer, 'JPG', 82)
+        result = (bytes(buffer.data()), 'image/jpeg')
+        if len(_thumb_cache) > 128:
+            _thumb_cache.clear()
+        _thumb_cache[cache_key] = result
+        return result
+    except RuntimeError:
+        return None
+
+
+#: pixmap cacheKey -> (jpeg bytes, mime); avoids re-encoding previews
+_thumb_cache = {}
+
+
 def store_asset(sha, data, name):
     """Stores media in the local asset cache and returns its path."""
 
@@ -346,8 +403,28 @@ def _state_media_bytes(state, kind):
     return None
 
 
-def item_state(item, include_image=True):
-    """The shareable state of an item."""
+def item_state(item, include_image=True, for_web=False):
+    """The shareable state of an item.
+
+    ``for_web`` swaps full inline media for small thumbnails (browser
+    clients); desktop peers keep the original behaviour.
+    """
+
+    def attach_media(state, kind):
+        data = item_asset_bytes(item)
+        if not data:
+            return
+        state['asset'] = _asset_meta(data, item.filename, kind)
+        if for_web:
+            if kind in ('image', 'video'):
+                thumb = web_thumb_bytes(item)
+                if thumb:
+                    state['asset']['thumb'] = base64.b64encode(
+                        thumb[0]).decode('ascii')
+                    state['asset']['thumb_mime'] = thumb[1]
+        elif len(data) <= ASSET_INLINE_LIMIT:
+            state['asset']['inline'] = base64.b64encode(
+                data).decode('ascii')
 
     state = {
         'type': getattr(item, 'TYPE', 'error'),
@@ -369,12 +446,7 @@ def item_state(item, include_image=True):
             state['crop'] = [crop.x(), crop.y(), crop.width(),
                              crop.height()]
         if include_image:
-            data = item_asset_bytes(item)
-            if data:
-                state['asset'] = _asset_meta(data, item.filename, 'image')
-                if len(data) <= ASSET_INLINE_LIMIT:
-                    state['asset']['inline'] = base64.b64encode(
-                        data).decode('ascii')
+            attach_media(state, 'image')
     elif item.TYPE == XRefModelItem.TYPE:
         state['filename'] = item.filename
         state['size'] = list(item.size())
@@ -383,13 +455,7 @@ def item_state(item, include_image=True):
         state['pitch'] = round(pitch, 2)
         state['zoom'] = round(zoom, 4)
         if include_image:
-            data = item_asset_bytes(item)
-            if data:
-                state['asset'] = _asset_meta(
-                    data, item.filename, 'model')
-                if len(data) <= ASSET_INLINE_LIMIT:
-                    state['asset']['inline'] = base64.b64encode(
-                        data).decode('ascii')
+            attach_media(state, 'model')
     elif item.TYPE == XRefPdfItem.TYPE:
         state['filename'] = item.filename
         state['size'] = list(item.size())
@@ -398,12 +464,7 @@ def item_state(item, include_image=True):
             # The page is only shared with the initial state, so peers
             # can browse independently afterwards
             state['page'] = int(item.current_page)
-            data = item_asset_bytes(item)
-            if data:
-                state['asset'] = _asset_meta(data, item.filename, 'pdf')
-                if len(data) <= ASSET_INLINE_LIMIT:
-                    state['asset']['inline'] = base64.b64encode(
-                        data).decode('ascii')
+            attach_media(state, 'pdf')
     elif item.TYPE == XRefVideoItem.TYPE:
         state['filename'] = item.filename
         state['size'] = list(item.size)
@@ -412,12 +473,7 @@ def item_state(item, include_image=True):
         state['volume'] = round(item.volume, 3)
         state['muted'] = item.is_muted
         if include_image:
-            data = item_asset_bytes(item)
-            if data:
-                state['asset'] = _asset_meta(data, item.filename, 'video')
-                if len(data) <= ASSET_INLINE_LIMIT:
-                    state['asset']['inline'] = base64.b64encode(
-                        data).decode('ascii')
+            attach_media(state, 'video')
     elif item.TYPE == XRefTextItem.TYPE:
         state['text'] = item.toPlainText()
         width = item.textWidth()
@@ -430,7 +486,25 @@ def item_state(item, include_image=True):
     return state
 
 
-def _apply_geometry(item, state):
+def _apply_geometry(item, state, partial=False):
+    """Applies geometry; with ``partial`` only keys present in the
+    patch are applied, so a move patch never resets rotation etc."""
+
+    if partial:
+        if 'x' in state or 'y' in state:
+            item.setPos(state.get('x', item.pos().x()),
+                        state.get('y', item.pos().y()))
+        if 'z' in state:
+            item.setZValue(state['z'])
+        if 'scale' in state:
+            item.setScale(state['scale'])
+        if 'rotation' in state:
+            item.setRotation(state['rotation'])
+        if 'opacity' in state:
+            item.setOpacity(state['opacity'])
+        if state.get('flip', 1) == -1 and item.flip() != -1:
+            item.do_flip()
+        return
     item.setPos(state.get('x', 0), state.get('y', 0))
     item.setZValue(state.get('z', 0))
     if state.get('scale'):
@@ -450,6 +524,11 @@ def create_item_from_state(state):
         image = QtGui.QImage()
         if data:
             image.loadFromData(data)
+        if image.isNull() and state.get('size'):
+            # Placeholder for pending media: correct size, empty pixels
+            image = QtGui.QImage(
+                int(state['size'][0]), int(state['size'][1]),
+                QtGui.QImage.Format.Format_ARGB32)
         item = XRefPixmapItem(image, state.get('filename'))
         if data:
             item.original_bytes = data
@@ -527,10 +606,15 @@ def _apply_media_flags(item, state):
         item.grayscale = bool(state['grayscale'])
 
 
-def update_item_from_state(item, state):
+def update_item_from_state(item, state, partial=False):
     """Applies a changed state to an existing item."""
 
-    _apply_geometry(item, state)
+    _apply_geometry(item, state, partial=partial)
+    if partial:
+        if 'grayscale' in state:
+            _apply_media_flags(item, state)
+        item.update()
+        return
     if item.TYPE == XRefTextItem.TYPE:
         text = state.get('text', '')
         if item.toPlainText() != text:
@@ -697,10 +781,11 @@ class CollabSession(QtCore.QObject):
         return {self._collab_id(item): item
                 for item in self.scene.items_for_save()}
 
-    def _collect_state(self, include_image=True):
+    def _collect_state(self, include_image=True, for_web=False):
         items = {}
         for cid, item in self._items_by_id().items():
-            items[cid] = item_state(item, include_image=include_image)
+            items[cid] = item_state(item, include_image=include_image,
+                                    for_web=for_web)
         links = set()
         for source, target in self.scene.active_links():
             links.add((self._collab_id(source), self._collab_id(target)))
@@ -865,10 +950,9 @@ class CollabSession(QtCore.QObject):
     def _broadcast_asset(self, data, name, kind, exclude=None):
         if not data or len(data) <= ASSET_INLINE_LIMIT:
             return
-        # Browsers receive the same chunked transfer with progress
-        bridge = getattr(self, 'web_bridge', None)
-        if bridge is not None:
-            self._send_asset_to_web(bridge, data, name, kind)
+        # Browsers do NOT get the original here: the snapshot carries a
+        # small thumbnail and the full file is only streamed when the
+        # browser user clicks the placeholder (asset_request)
         if self.is_host:
             for sock in list(self.peers):
                 if sock is not exclude and self._keys_for(sock) is not None:
@@ -877,18 +961,31 @@ class CollabSession(QtCore.QObject):
             self._send_asset_to(self.socket, data, name, kind)
 
     def _send_asset_to_web(self, bridge, data, name, kind):
-        """Streams a large asset to the browser clients, with progress."""
+        """Streams a large asset to the browser clients, with progress.
+
+        Runs on the Qt thread when answering an asset_request, so the
+        chunk loop is scheduled on the bridge's asyncio loop instead of
+        blocking the UI: the board stays fully usable while streaming.
+        """
 
         import base64 as _b64
+        import threading
         sha = _sha256(data)
         meta = _asset_meta(data, name, kind)
-        bridge.broadcast({'type': 'asset_begin', 'sha': sha,
-                          'size': len(data), 'meta': meta})
-        for offset in range(0, len(data), ASSET_CHUNK_SIZE):
-            chunk = data[offset:offset + ASSET_CHUNK_SIZE]
-            bridge.broadcast({'type': 'asset_chunk', 'sha': sha,
-                              'data': _b64.b64encode(chunk).decode('ascii')})
-        bridge.broadcast({'type': 'asset_end', 'sha': sha, 'meta': meta})
+
+        def stream():
+            bridge.broadcast({'type': 'asset_begin', 'sha': sha,
+                              'size': len(data), 'meta': meta})
+            for offset in range(0, len(data), ASSET_CHUNK_SIZE):
+                chunk = data[offset:offset + ASSET_CHUNK_SIZE]
+                bridge.broadcast(
+                    {'type': 'asset_chunk', 'sha': sha,
+                     'data': _b64.b64encode(chunk).decode('ascii')})
+                time.sleep(0.01)   # yield; keeps the UI and WS responsive
+            bridge.broadcast({'type': 'asset_end', 'sha': sha,
+                              'meta': meta})
+
+        threading.Thread(target=stream, daemon=True).start()
 
     def _send_item_assets(self, items, sock=None):
         """Sends media that was too large to travel inline.
@@ -1016,6 +1113,10 @@ class CollabSession(QtCore.QObject):
         if find_cached_asset(sha):
             return
         self._pending_assets.setdefault(sha, []).append(item)
+        try:
+            item.set_download_progress(0)
+        except RuntimeError:
+            pass
         self._request_asset(sha)
 
     def _send_snapshot(self, sock):
@@ -1382,19 +1483,27 @@ class CollabSession(QtCore.QObject):
         message.update(seal(keys, payload))
         self._write(sock, message)
 
-    def _broadcast(self, payload, exclude=None):
+    def _broadcast(self, payload, exclude=None, web_echo=True,
+                   web_ops=None):
         if self.is_host:
             for sock in list(self.peers):
                 if sock is not exclude and self._keys_for(sock) is not None:
                     self._send(sock, payload)
         elif self.socket is not None:
             self._send(self.socket, payload)
-        # Mirror desktop traffic to the browser clients
+        # Mirror desktop traffic to the browser clients. Ops that came
+        # from a browser are not echoed back (the browser already has
+        # them); new items go to browsers as thumbnails, not originals.
+        # The cached snapshot for new browsers is kept fresh by the
+        # bridge's refresh timer, not on every op (too expensive).
         bridge = getattr(self, 'web_bridge', None)
         if bridge is not None and payload.get('type') == 'ops':
-            # Keep the cached snapshot for newly connecting browsers
-            self._web_cache = self.web_snapshot()
-            bridge.broadcast(payload)
+            if web_ops is not None:
+                bridge.broadcast({'type': 'ops',
+                                  'origin': payload.get('origin'),
+                                  'ops': web_ops})
+            elif web_echo or payload.get('origin') != 'web':
+                bridge.broadcast(payload)
 
     def _on_ready_read(self, sock):
         if sock is None:
@@ -1626,7 +1735,7 @@ class CollabSession(QtCore.QObject):
         self.board_replaced.emit()
         self.scene.update()
 
-    def _apply_ops(self, ops):
+    def _apply_ops(self, ops, partial=False):
         if not ops:
             return
         self._applying = True
@@ -1650,8 +1759,13 @@ class CollabSession(QtCore.QObject):
                 elif kind == 'update':
                     item = by_id.get(cid)
                     if item is not None:
-                        update_item_from_state(item, state)
-                    self._known[cid] = _diff_state(state)
+                        # Browser patches only carry changed keys; they
+                        # are applied partially so rotation/scale stay
+                        update_item_from_state(
+                            item, state, partial=partial)
+                    known = dict(self._known.get(cid) or {})
+                    known.update(state)
+                    self._known[cid] = _diff_state(known)
                 elif kind == 'remove':
                     item = by_id.pop(cid, None)
                     if item is not None:
@@ -1679,10 +1793,10 @@ class CollabSession(QtCore.QObject):
     def start_web_sharing(self, public=False):
         """Serves the board to browsers.
 
-        Returns the shareable link (with the session code), or None when
-        the optional aiohttp package is missing. With ``public=True`` an
-        ssh tunnel (localhost.run) exposes the board on the internet; the
-        URL then carries the session code, which keeps the board private.
+        Two transports are combined: a WebRTC mirror of the board (live
+        video + remote input + media upload; primary) and the older
+        ops-based view served by the web bridge (fallback when aiortc
+        is unavailable).
         """
 
         if not self.is_active():
@@ -1690,9 +1804,56 @@ class CollabSession(QtCore.QObject):
         from xref.web_bridge import WebBridge, AIOHTTP_AVAILABLE
         if not AIOHTTP_AVAILABLE:
             return None
+        views = self.scene.views()
+        view = views[0] if views else None
+        mirror = None
+        if view is not None:
+            existing = getattr(self, 'stream_server', None)
+            if existing is not None and existing.port:
+                # Reuse the running mirror; starting another one would
+                # leave two encoders doubling the CPU load
+                mirror = existing
+            else:
+                try:
+                    from xref.web_stream import BoardStreamServer
+                    candidate = BoardStreamServer(view)
+                    if candidate.available() and candidate.start():
+                        mirror = candidate
+                        self.stream_server = candidate
+                        logger.info(
+                            f'Mirror streaming on port {candidate.port}')
+                except Exception as e:  # noqa: BLE001 - fall back
+                    logger.info(f'Mirror streaming unavailable: {e}')
         if getattr(self, 'web_bridge', None) is not None:
-            return self.public_web_link() if getattr(
-                self, 'web_tunnel', None) else self.web_link()
+            # Sharing already runs: re-open the tunnel if it died
+            # (localhost.run drops idle tunnels), then return the link
+            tunnel = getattr(self, 'web_tunnel', None)
+            alive = (tunnel is not None and tunnel.url
+                     and tunnel.process is not None
+                     and tunnel.process.poll() is None)
+            if alive:
+                return f'{tunnel.url}/#CODE{self.session_code}'
+            if tunnel is not None:
+                tunnel.stop()
+                self.web_tunnel = None
+            from xref.tunnel import SshTunnel
+            self.web_tunnel = SshTunnel(mirror.port if mirror
+                                        else self.web_bridge.port)
+            url = self.web_tunnel.start()
+            if url:
+                return f'{url}/#CODE{self.session_code}'
+            return self.web_link()
+        if mirror is not None:
+            # The WebRTC mirror is the single web view: no legacy page
+            # is served alongside it
+            if public:
+                from xref.tunnel import SshTunnel
+                self.web_tunnel = SshTunnel(mirror.port)
+                url = self.web_tunnel.start()
+                if url:
+                    return f'{url}/#CODE{self.session_code}'
+                self.web_tunnel = None
+            return self.stream_link()
         self.web_bridge = WebBridge(self, self.session_code)
         # Precompute the snapshot on this (Qt) thread
         self._web_cache = self.web_snapshot()
@@ -1703,17 +1864,25 @@ class CollabSession(QtCore.QObject):
         logger.info(f'Web sharing on port {port}')
         if public:
             from xref.tunnel import SshTunnel
-            self.web_tunnel = SshTunnel(port)
+            self.web_tunnel = SshTunnel(mirror.port if mirror else port)
             url = self.web_tunnel.start()
             if url:
                 return f'{url}/#CODE{self.session_code}'
             # Tunnel failed: fall back to the local link
             self.web_tunnel = None
-        return self.web_link()
+        return self.stream_link() if mirror else self.web_link()
 
     def web_link(self):
         """The shareable browser link for this session."""
 
+        stream = getattr(self, 'stream_server', None)
+        if stream is not None and stream.port:
+            import socket
+            try:
+                host = socket.gethostbyname(socket.gethostname())
+            except OSError:
+                host = '127.0.0.1'
+            return f'http://{host}:{stream.port}/#CODE{self.session_code}'
         bridge = getattr(self, 'web_bridge', None)
         if bridge is None or not bridge.port:
             return None
@@ -1724,15 +1893,36 @@ class CollabSession(QtCore.QObject):
             host = '127.0.0.1'
         return f'http://{host}:{bridge.port}/#CODE{self.session_code}'
 
+    def stream_link(self):
+        """Local link of the WebRTC mirror, when it runs."""
+
+        stream = getattr(self, 'stream_server', None)
+        if stream is None or not stream.port:
+            return None
+        import socket
+        try:
+            host = socket.gethostbyname(socket.gethostname())
+        except OSError:
+            host = '127.0.0.1'
+        return f'http://{host}:{stream.port}/#CODE{self.session_code}'
+
     def public_web_link(self):
         """The tunnelled internet link, when a tunnel is open."""
 
         tunnel = getattr(self, 'web_tunnel', None)
-        if tunnel is not None and tunnel.url:
+        if tunnel is not None and tunnel.url and tunnel.process is not None \
+                and tunnel.process.poll() is None:
             return f'{tunnel.url}/#CODE{self.session_code}'
         return None
 
     def stop_web_sharing(self):
+        stream = getattr(self, 'stream_server', None)
+        if stream is not None:
+            try:
+                stream.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            self.stream_server = None
         bridge = getattr(self, 'web_bridge', None)
         if bridge is not None:
             bridge.stop()
@@ -1765,14 +1955,13 @@ class CollabSession(QtCore.QObject):
         return None
 
     def _cached_web_snapshot(self):
-        items, links = self._collect_state(include_image=True)
+        items, links = self._collect_state(include_image=True, for_web=True)
         return {
             'type': 'snapshot',
             'items': [{'id': cid, 'item': state}
                       for cid, state in items.items()],
             'links': [list(link) for link in links],
             'canvas': self._canvas_state(),
-            'view': self._view_state(),
         }
 
     def _canvas_state(self):
@@ -1799,59 +1988,80 @@ class CollabSession(QtCore.QObject):
                 'show_titles': titles}
 
     def web_pending_assets(self):
-        """Large assets a newly connecting browser still needs.
+        """Assets a browser may request on demand.
 
-        Runs on the Qt thread (called from the web bridge). Returns
-        ``(data, name, kind)`` tuples for every distinct asset over the
-        inline limit, so a browser that connects later sees the same
-        board as the desktop.
+        The snapshot already carries thumbnails; full media (video,
+        pdf, model, or the original image) is only streamed when a
+        browser clicks a placeholder and asks for it.
         """
 
-        from xref.collab import ASSET_INLINE_LIMIT  # pragma: no cover
-        result = []
-        seen = set()
-        try:
-            board_items = self.scene.items_for_save()
-        except RuntimeError:  # scene already gone
-            return result
-        for item in board_items:
-            try:
-                data = item_asset_bytes(item)
-            except Exception:  # noqa: BLE001 - unreadable media
-                continue
-            if not data or len(data) <= ASSET_INLINE_LIMIT:
-                continue
-            sha = _sha256(data)
-            if sha in seen:
-                continue
-            seen.add(sha)
-            if item.TYPE == XRefVideoItem.TYPE:
-                kind = 'video'
-            elif item.TYPE == XRefModelItem.TYPE:
-                kind = 'model'
-            elif item.TYPE == XRefPdfItem.TYPE:
-                kind = 'pdf'
-            else:
-                kind = 'image'
-            result.append((data, item.filename, kind))
-        return result
+        return []
 
     def apply_web_message(self, payload):
         """Applies ops from a browser client and relays them."""
 
         if not isinstance(payload, dict):
             return
-        if payload.get('type') != 'ops':
+        mtype = payload.get('type')
+        if mtype == 'web_asset_begin':
+            self._web_uploads = getattr(self, '_web_uploads', None) or {}
+            self._web_uploads[payload.get('sha')] = {
+                'chunks': [], 'received': 0,
+                'size': payload.get('size') or 1,
+                'meta': payload.get('meta') or {}}
+            return
+        if mtype == 'web_asset_chunk':
+            upload = (getattr(self, '_web_uploads', None) or {}).get(
+                payload.get('sha'))
+            if upload is not None:
+                import base64 as _b64in
+                try:
+                    chunk = _b64in.b64decode(payload.get('data') or '')
+                except ValueError:
+                    return
+                upload['chunks'].append(chunk)
+                upload['received'] += len(chunk)
+                # live progress on the desktop placeholder
+                pct = min(99, upload['received'] * 100 // upload['size'])
+                for item in self._pending_assets.get(payload['sha'], []):
+                    try:
+                        item.set_download_progress(pct)
+                    except RuntimeError:
+                        pass
+            return
+        if mtype == 'web_asset_end':
+            upload = (getattr(self, '_web_uploads', None) or {}).pop(
+                payload.get('sha'), None)
+            if upload is not None:
+                data = b''.join(upload['chunks'])
+                meta = upload['meta']
+                name = meta.get('name') or 'upload.bin'
+                path = store_asset(_sha256(data), data, name)
+                self._apply_asset(payload.get('sha'), data, path)
+            return
+        if mtype == 'asset_request':
+            # A browser wants a non-image asset (video/pdf/model)
+            sha = payload.get('sha')
+            for item in self.scene.items_for_save():
+                data = item_asset_bytes(item)
+                if data and _sha256(data) == sha:
+                    bridge = getattr(self, 'web_bridge', None)
+                    if bridge is not None:
+                        kind = 'video' if item.TYPE == XRefVideoItem.TYPE \
+                            else 'model' if item.TYPE == XRefModelItem.TYPE \
+                            else 'pdf' if item.TYPE == XRefPdfItem.TYPE \
+                            else 'image'
+                        self._send_asset_to_web(
+                            bridge, data, item.filename, kind)
+                    return
+            return
+        if mtype != 'ops':
             return
         ops = payload.get('ops') or []
-        self._apply_ops(ops)
+        self._apply_ops(ops, partial=True)
         # Relay to the desktop peers
         self._broadcast({'type': 'ops', 'origin': 'web',
-                         'ops': ops})
-        # And back to the other browsers
-        bridge = getattr(self, 'web_bridge', None)
-        if bridge is not None:
-            bridge.broadcast(payload)
+                         'ops': ops}, web_echo=False)
 
     def sync(self):
         """Sends local changes to the peers."""
@@ -1862,12 +2072,22 @@ class CollabSession(QtCore.QObject):
             return
         items, links = self._collect_state(include_image=False)
         by_id = self._items_by_id()
+        web_clients = bool(getattr(self, 'web_bridge', None) is not None
+                           and getattr(self.web_bridge, 'clients', None))
         ops = []
+        web_ops = []
         new_items = []
         for cid, state in items.items():
             if cid not in self._known:
                 full = item_state(by_id[cid], include_image=True)
                 ops.append({'op': 'add', 'id': cid, 'item': full})
+                if web_clients:
+                    # Browsers get the same op but with a thumbnail
+                    # instead of the full image
+                    web_ops.append({'op': 'add', 'id': cid,
+                                    'item': item_state(
+                                        by_id[cid], include_image=True,
+                                        for_web=True)})
                 new_items.append(by_id[cid])
             elif self._known[cid] != state:
                 ops.append({'op': 'update', 'id': cid,
@@ -1886,7 +2106,7 @@ class CollabSession(QtCore.QObject):
         self._links = set(links)
         if ops:
             self._broadcast({'type': 'ops', 'origin': self.peer_id,
-                             'ops': ops})
+                             'ops': ops}, web_ops=web_ops or None)
             if new_items:
                 self._send_item_assets(new_items)
 
