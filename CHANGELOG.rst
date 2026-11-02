@@ -23,6 +23,18 @@
   desktop session and the other peers. Needs the optional aiohttp
   package.
 
+0.4.1 (2026-11-02)
+==================
+
+* **Window corner radius** (Settings -> Miscellaneous): the frameless
+  window's corners are rounded by default (8 px, matching the window
+  control buttons); set to 0 for sharp corners, up to 32 px.
+* The **background grid was removed** (drawing, snapping and its
+  settings) to keep the canvas light; snapping-related code paths are
+  gone with it.
+* Fixed the web canvas snapshot after the grid removal and completed
+  missing Turkish translations.
+
 0.4.0 (2026-11-02)
 ==================
 

@@ -251,35 +251,6 @@ class RememberSceneLayoutsWidget(SingleCheckboxGroup):
     KEY = 'View/remember_scene_layouts'
 
 
-class GridStyleWidget(RadioGroup):
-    TITLE = 'Background Grid:'
-    HELPTEXT = ('The grid style of the canvas. Items can be snapped to the '
-                'grid even while it is invisible.')
-    KEY = 'View/grid_style'
-    OPTIONS = (
-        ('none', 'Off', 'Grid off'),
-        ('lines', 'Lines', 'Line grid'),
-        ('dots', 'Dots', 'Dotted grid'),
-    )
-
-
-class GridSpacingWidget(IntegerGroup):
-    TITLE = 'Grid Spacing (px):'
-    HELPTEXT = ('The distance between grid lines/dots on the screen, and '
-                'the snap distance when snapping is on.')
-    KEY = 'View/grid_spacing'
-    MIN = 5
-    MAX = 1000
-
-
-class GridSnapWidget(SingleCheckboxGroup):
-    TITLE = 'Snap Items to Grid:'
-    HELPTEXT = ('Items snap to the grid when they are dropped after '
-                'dragging, even when the grid itself is hidden.')
-    LABEL = 'Snap items to the grid'
-    KEY = 'View/grid_snap'
-
-
 class ModelMaxTrianglesWidget(IntegerGroup):
     TITLE = 'Model Quality (Triangles):'
     HELPTEXT = ('Maximum number of triangles rendered per 3D model. Higher '
@@ -325,6 +296,16 @@ class WindowButtonsDelayWidget(IntegerGroup):
     MAX = 30
 
 
+class WindowCornerRadiusWidget(IntegerGroup):
+    TITLE = 'Window Corner Radius (px):'
+    HELPTEXT = ('Rounds the corners of the frameless window. The default '
+                'matches the rounded look of the window control buttons; '
+                'set to 0 for sharp corners.')
+    KEY = 'View/window_corner_radius'
+    MIN = 0
+    MAX = 32
+
+
 class WindowMoveMarginWidget(IntegerGroup):
     TITLE = 'Window Edge Move Area:'
     HELPTEXT = ('The frameless window has no title bar. Drag this many pixels '
@@ -367,8 +348,9 @@ class SettingsDialog(QtWidgets.QDialog):
         misc_layout.addWidget(AutosaveIntervalWidget(), 2, 1)
         misc_layout.addWidget(WindowMoveMarginWidget(), 3, 0)
         misc_layout.addWidget(WindowButtonsDelayWidget(), 3, 1)
-        misc_layout.addWidget(CanvasColorWidget(), 4, 0)
-        misc_layout.addWidget(ShowMediaTitlesWidget(), 4, 1)
+        misc_layout.addWidget(WindowCornerRadiusWidget(), 4, 0)
+        misc_layout.addWidget(CanvasColorWidget(), 4, 1)
+        misc_layout.addWidget(ShowMediaTitlesWidget(), 5, 0)
         tabs.addTab(misc, tr('&Miscellaneous'))
 
         # Images & Items
@@ -381,14 +363,11 @@ class SettingsDialog(QtWidgets.QDialog):
         items_layout.addWidget(ArrangeDefaultWidget(), 1, 1)
         tabs.addTab(items, tr('&Images && Items'))
 
-        # View (grid)
+        # View
         view_tab = QtWidgets.QWidget()
         view_layout = QtWidgets.QGridLayout()
         view_tab.setLayout(view_layout)
-        view_layout.addWidget(GridStyleWidget(), 0, 0)
-        view_layout.addWidget(GridSpacingWidget(), 0, 1)
-        view_layout.addWidget(GridSnapWidget(), 1, 0)
-        view_layout.addWidget(RememberSceneLayoutsWidget(), 1, 1)
+        view_layout.addWidget(RememberSceneLayoutsWidget(), 0, 0)
         tabs.addTab(view_tab, tr('&View'))
 
         # 3D Viewer

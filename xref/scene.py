@@ -1117,51 +1117,20 @@ class XRefGraphicsScene(QtWidgets.QGraphicsScene):
         super().mouseReleaseEvent(event)
 
     def finish_item_move(self, release_pos):
-        """Commits a finished drag: the drag delta plus the grid snap.
+        """Commits a finished drag.
 
         Qt has already moved the items visually, so the drag delta is
-        recorded for undo only; the snap correction has to move the items
-        again and is merged into the same undo step.
+        recorded for undo only.
         """
 
         items = self.selectedItems()
         if not items:
             return
         delta = release_pos - self.event_start
-        snap = self._grid_snap_delta()
-        if not snap.isNull():
-            # The snap correction moves the items visibly; it merges
-            # with the drag into one undo step
-            self.undo_stack.push(commands.MoveItemsBy(items, snap))
-        elif not delta.isNull():
+        if not delta.isNull():
             # Record the drag for undo (the move itself already happened)
             self.undo_stack.push(
                 commands.MoveItemsBy(items, delta, ignore_first_redo=True))
-
-    def _grid_snap_delta(self):
-        """Extra movement that snaps the selection onto the grid.
-
-        The first item's origin (top left of its bounding rect) is snapped
-        to the nearest grid crossing; the whole selection follows. Works
-        from the items' actual positions, so it is independent of how far
-        the drag went. Returns a null vector when snapping is off.
-        """
-
-        views = self.views()
-        if not views:
-            return QtCore.QPointF()
-        view = views[0]
-        snap_target = getattr(view, 'snap_position_to_grid', None)
-        if snap_target is None:
-            return QtCore.QPointF()
-        items = self.selectedItems()
-        if not items:
-            return QtCore.QPointF()
-        item = items[0]
-        # Snap the item's position (its top left corner): the most
-        # predictable reference point for aligning a board
-        snapped = snap_target(item.pos())
-        return snapped - item.pos()
 
     def selectedItems(self, user_only=False):
         """If ``user_only`` is set to ``True``, only return items added

@@ -236,7 +236,7 @@ class XRefGraphicsView(MainControlsMixin,
         session = getattr(self, 'collab', None)
         if session is not None and session.is_active():
             peers = session.peer_count()
-            title = f'{title}  ·  {tr("shared ({count})", count=peers)}'
+            title = f'{title}  Â·  {tr("shared ({count})", count=peers)}'
         self.parent.setWindowTitle(title)
 
     def on_scene_changed(self, region):
@@ -1055,6 +1055,10 @@ class XRefGraphicsView(MainControlsMixin,
 
     def on_action_settings(self):
         widgets.settings.SettingsDialog(self)
+        # Corner radius may have changed: refresh the window shape
+        window = self.window()
+        if hasattr(window, 'apply_corner_shape'):
+            window.apply_corner_shape()
 
     def on_action_keyboard_settings(self):
         widgets.controls.ControlsDialog(self)
@@ -1944,99 +1948,6 @@ class XRefGraphicsView(MainControlsMixin,
         if self.active_mode is None and not self.scene.draw_mode:
             self._scene_cursor_active = False
             self.viewport().unsetCursor()
-
-    # -- Background grid -----------------------------------------------------
-
-    def grid_visible(self):
-        """Whether the background grid is drawn."""
-
-        try:
-            return self.settings.valueOrDefault('View/grid_style') != 'none'
-        except Exception:  # noqa: BLE001 - settings not ready
-            return False
-
-    def drawBackground(self, painter, rect):
-        super().drawBackground(painter, rect)
-        try:
-            style = self.settings.valueOrDefault('View/grid_style')
-        except Exception:  # noqa: BLE001
-            return
-        if style == 'none':
-            return
-        try:
-            spacing = float(self.settings.valueOrDefault(
-                'View/grid_spacing'))
-        except (TypeError, ValueError):
-            spacing = 50.0
-        if spacing < 5:
-            return
-
-        # The grid keeps a constant size on screen: the cell distance is
-        # measured in viewport pixels. The visible viewport area is
-        # converted to scene coordinates and the lines are placed so they
-        # are `spacing` pixels apart on screen at the current zoom.
-        scale = max(self.get_scale(), 0.0001)
-        cell = spacing / scale  # cell size in scene units
-
-        area = self.mapToScene(self.viewport().rect()).boundingRect()
-        left = area.left() - (area.left() % cell)
-        top = area.top() - (area.top() % cell)
-
-        color = self.backgroundBrush().color()
-        grid_color = QtGui.QColor(
-            255 - color.red(), 255 - color.green(), 255 - color.blue())
-        grid_color.setAlpha(40 if style == 'lines' else 90)
-        pen = QtGui.QPen(grid_color)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-
-        if style == 'lines':
-            x = left
-            while x <= area.right():
-                painter.drawLine(QtCore.QPointF(x, area.top()),
-                                 QtCore.QPointF(x, area.bottom()))
-                x += cell
-            y = top
-            while y <= area.bottom():
-                painter.drawLine(QtCore.QPointF(area.left(), y),
-                                 QtCore.QPointF(area.right(), y))
-                y += cell
-        else:  # dots
-            painter.setBrush(grid_color)
-            painter.setPen(Qt.PenStyle.NoPen)
-            radius = 1.0 / scale  # constant 1 px on screen
-            y = top
-            while y <= area.bottom():
-                x = left
-                while x <= area.right():
-                    painter.drawEllipse(QtCore.QPointF(x, y), radius,
-                                        radius)
-                    x += cell
-                y += cell
-
-    def snap_position_to_grid(self, scene_pos):
-        """The scene position snapped to the grid (if snapping is on).
-
-        The grid lives in scene coordinates, so snapped items stay put
-        when the canvas is zoomed.
-        """
-
-        try:
-            if not self.settings.valueOrDefault('View/grid_snap'):
-                return scene_pos
-            spacing = float(self.settings.valueOrDefault(
-                'View/grid_spacing'))
-        except (TypeError, ValueError):
-            return scene_pos
-        if spacing < 5:
-            return scene_pos
-        # The grid is a fixed distance apart on screen; convert it into
-        # scene units at the current zoom level
-        scale = max(self.get_scale(), 0.0001)
-        cell = spacing / scale
-        return QtCore.QPointF(
-            round(scene_pos.x() / cell) * cell,
-            round(scene_pos.y() / cell) * cell)
 
     def recalc_scene_rect(self):
         """Resize the scene rectangle so that it is always one view width

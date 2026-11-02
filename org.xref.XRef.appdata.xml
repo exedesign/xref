@@ -20,6 +20,13 @@
     </screenshots>
 
     <releases>
+        <release version="0.4.1" date="2026-11-02">
+            <description>
+                <p>Window corner radius setting (rounded frameless
+                window by default), background grid removed for a
+                lighter canvas, web canvas snapshot fix.</p>
+            </description>
+        </release>
         <release version="0.4.0" date="2026-11-02">
             <description>
                 <p>Live WebRTC web mirror: browser guests see the board as

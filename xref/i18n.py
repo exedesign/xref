@@ -452,6 +452,9 @@ TRANSLATIONS = {
             'Bu arada pano yerel ağda paylaşılıyor; bu bağlantı '
             'kopyalandı:\n\n{link}',
         'Internet sharing stopped; still sharing on the '
+        'local network.':
+            'İnternet paylaşımı durduruldu; yerel ağda paylaşıma devam.',
+        'Internet sharing stopped; still sharing on the '
         'local network':
             'İnternet paylaşımı durduruldu; yerel ağda paylaşıma devam',
         'Internet tunnel could not be opened; sharing on the local network instead: {link}':
@@ -474,28 +477,15 @@ TRANSLATIONS = {
             'dosyada saklar. Sahne yeniden açıldığında penceresi '
             'geri yüklenir; yeni pencereler son kapatılan düzeni kullanır.',
         'Remember layouts per scene': 'Düzenleri sahne başına hatırla',
-        'Background Grid:': 'Arka Plan Izgarası:',
-        'The grid style of the canvas. Items can be snapped to the '
-        'grid even while it is invisible.':
-            'Tuvalin ızgara stili. Öğeler ızgara görünmezken bile '
-            'ızgaraya hizalanabilir.',
+        'Window Corner Radius (px):': 'Pencere Köşe Yarıçapı (px):',        'Rounds the corners of the frameless window. The default '
+        'matches the rounded look of the window control buttons; '
+        'set to 0 for sharp corners.':
+            'Çerçevesiz pencerenin köşelerini yuvarlar. Varsayılan, pencere '
+            'denetim düğmelerinin yuvarlak görünümüyle aynıdır; keskin '
+            'köşeler için 0 yapın.',
         'Off': 'Kapalı',
         'Lines': 'Çizgiler',
         'Dots': 'Noktalar',
-        'Grid off': 'Izgara kapalı',
-        'Line grid': 'Çizgi ızgara',
-        'Dotted grid': 'Noktalı ızgara',
-        'Grid Spacing (px):': 'Izgara Aralığı (px):',
-        'The distance between grid lines/dots on the screen, and the '
-        'snap distance when snapping is on.':
-            'Ekranda ızgara çizgileri/noktaları arasındaki mesafe ve '
-            'hizalama açıkken yapışma mesafesi.',
-        'Snap Items to Grid:': 'Öğeleri Izgaraya Hizala:',
-        'Items snap to the grid when they are dropped after dragging, '
-        'even when the grid itself is hidden.':
-            'Öğeler sürüklenip bırakıldığında ızgaraya hizalanır; '
-            'ızgara gizliyken de çalışır.',
-        'Snap items to the grid': 'Öğeleri ızgaraya hizala',
         '&View': '&Görünüm',
         '3&D Viewer': '3&D Görüntüleyici',
         'Model Quality (Triangles):': 'Model Kalitesi (Üçgen):',

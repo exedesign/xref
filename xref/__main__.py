@@ -21,7 +21,7 @@ import platform
 import signal
 import sys
 
-from PyQt6 import QtCore, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets
 
 from xref import constants
 from xref.assets import XRefAssets
@@ -65,6 +65,76 @@ class XRefMainWindow(QtWidgets.QMainWindow):
         # Minimize/full screen/close buttons in the top right corner
         self.window_buttons = WindowButtons(self)
         self.show()
+
+    # -- Rounded corners (frameless window) --------------------------------
+
+    def corner_radius(self):
+        """The window corner radius, 0 for square corners.
+
+        The default matches the window control buttons' rounded panel,
+        so the window and its buttons share the same softness.
+        """
+
+        try:
+            radius = int(self.view.settings.valueOrDefault(
+                'View/window_corner_radius'))
+        except (TypeError, ValueError):
+            radius = 8
+        return max(0, min(32, radius))
+
+    def rounded_corners_on(self):
+        """Whether the frameless window should have rounded corners."""
+
+        return (self.is_frameless() and not self.isFullScreen()
+                and self.corner_radius() > 0)
+
+    def is_frameless(self):
+        return bool(self.windowFlags()
+                    & QtCore.Qt.WindowType.FramelessWindowHint)
+
+    def apply_corner_shape(self):
+        """(Re)applies the rounded-corner mask after settings changes.
+
+        Must run after the window geometry is current, e.g. from a
+        resize event or a settings change.
+        """
+
+        if self.rounded_corners_on():
+            radius = self.corner_radius()
+            bitmap = QtGui.QBitmap(self.size())
+            bitmap.fill(QtCore.Qt.GlobalColor.color0)  # transparent
+            painter = QtGui.QPainter(bitmap)
+            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+            painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(QtCore.Qt.GlobalColor.color1)  # opaque
+            painter.drawRoundedRect(QtCore.QRectF(self.rect()), radius,
+                                    radius)
+            painter.end()
+            self.setMask(bitmap)
+        else:
+            self.clearMask()
+        self.update()
+
+    def paintEvent(self, event):
+        if self.rounded_corners_on():
+            painter = QtGui.QPainter(self)
+            radius = self.corner_radius()
+            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+            painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 38)))
+            painter.setBrush(QtWidgets.QApplication.palette()
+                             .color(QtGui.QPalette.ColorRole.Window))
+            painter.drawRoundedRect(
+                QtCore.QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
+                radius, radius)
+        super().paintEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.apply_corner_shape()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.apply_corner_shape()
 
     def save_scene_layout(self):
         """Stores the window geometry inside the scene file itself."""

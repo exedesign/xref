@@ -34,8 +34,7 @@ Sade arayüzü, yaratıcı sürecinizin önüne geçmemek için tasarlandı.
   üstte belirir. Her sahne kendi pencere konumunu ve boyutunu tahta dosyası
   içinde hatırlar (Ayarlar -> Görünüm -> Sahne Yerleşimlerini Hatırla)
 * Sonsuz tuval: kaydırma, yakınlaştırma, döndürme, çevirme, kırpma,
-  hizalama (rastgele dahil) ve boyut eşitleme; tuval rengi ve öge
-  tutturmalı arka plan ızgarası (çizgi veya nokta) ayarlanabilir
+  hizalama (rastgele dahil) ve boyut eşitleme; tuval rengi ayarlanabilir
 * Video oynatma: DaVinci Resolve benzeri üzerine gelince tarama (kırmızı
   oynatım kafası), hatırlanan önizleme karesi, oynat/duraklat, sessize alma
   ve ses seviyesi; tek tıklama imlecin altındaki kareyi kilitler
@@ -110,8 +109,7 @@ Features
   position and size, stored inside the board file
   (Settings -> View -> Remember Scene Layouts)
 * Infinite canvas with pan, zoom, rotate, flip, crop, arrange (including
-  randomly) and normalize; the canvas colour and a background grid (lines or
-  dots) with optional item snapping are configurable
+  randomly) and normalize; the canvas colour is configurable
 * Video playback with a DaVinci-Resolve-like hover scrub (red playhead), a
   remembered preview frame, play/pause, mute and volume controls; a single
   click locks the frame under the pointer

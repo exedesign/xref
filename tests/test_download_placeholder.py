@@ -77,24 +77,21 @@ def test_host_marks_pending_items_as_downloading(view, qapp):
 # -- Web canvas parity --------------------------------------------------------
 
 def test_snapshot_contains_canvas_settings(view, qapp):
-    XRefSettings().setValue('View/grid_style', 'dots')
-    XRefSettings().setValue('View/grid_spacing', 75)
+    XRefSettings().setValue('Items/show_media_titles', True)
     session = collab.CollabSession(view.scene, name='host')
     assert session.host(port=0, code='CANVTEST')
     try:
         snapshot = session.web_snapshot()
         canvas = snapshot.get('canvas')
-        assert canvas and canvas['grid']['style'] == 'dots'
-        assert canvas['grid']['spacing'] == 75
-        assert canvas['colour'].startswith('#')
+        assert canvas and canvas['colour'].startswith('#')
+        assert canvas['show_titles'] is True
     finally:
         session.leave()
-        XRefSettings().setValue('View/grid_style', 'none')
+        XRefSettings().setValue('Items/show_media_titles', False)
 
 
-def test_web_client_has_grid_and_download_code():
+def test_web_client_has_download_code():
     from xref.web_client import CLIENT_HTML
     assert 'asset_begin' in CLIENT_HTML
     assert 'asset_chunk' in CLIENT_HTML
-    assert "boardCanvas.grid.style !== 'none'" in CLIENT_HTML
     assert "pct + '%'" in CLIENT_HTML  # download percentage label

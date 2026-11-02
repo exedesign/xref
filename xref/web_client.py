@@ -141,8 +141,7 @@ let selection = new Set();   // selected item ids
 // Large assets stream in chunks; items show a download box meanwhile
 let assetBuffers = {};   // sha -> {received, size, chunks: []}
 let assetData = {};      // sha -> dataURL (complete)
-let boardCanvas = {colour: '#111111', grid: {style: 'none', spacing: 50},
-                   show_titles: false};
+let boardCanvas = {colour: '#111111', show_titles: false};
 
 function resize() {
   canvas.width = innerWidth;
@@ -165,30 +164,6 @@ function itemRect(state) {
 function draw() {
   ctx.fillStyle = boardCanvas.colour || '#111';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  // Grid: same look as the desktop - constant on-screen spacing
-  if (boardCanvas.grid && boardCanvas.grid.style !== 'none' && boardCanvas.grid.spacing >= 5) {
-    const spacing = boardCanvas.grid.spacing;
-    const grid = invertColour(boardCanvas.colour || '#111111');
-    ctx.strokeStyle = `rgba(${grid.r},${grid.g},${grid.b},0.16)`;
-    ctx.lineWidth = 1;
-    if (boardCanvas.grid.style === 'dots') {
-      ctx.fillStyle = `rgba(${grid.r},${grid.g},${grid.b},0.35)`;
-      for (let y = 0; y < canvas.height; y += spacing) {
-        for (let x = 0; x < canvas.width; x += spacing) {
-          ctx.fillRect(x, y, 2, 2);
-        }
-      }
-    } else {
-      ctx.beginPath();
-      for (let x = 0; x < canvas.width; x += spacing) {
-        ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, canvas.height);
-      }
-      for (let y = 0; y < canvas.height; y += spacing) {
-        ctx.moveTo(0, y + 0.5); ctx.lineTo(canvas.width, y + 0.5);
-      }
-      ctx.stroke();
-    }
-  }
   ctx.save();
   ctx.translate(view.x, view.y);
   ctx.scale(view.scale, view.scale);

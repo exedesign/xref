@@ -203,18 +203,10 @@ class XRefSettings(QtCore.QSettings):
             'cast': int,
             'validate': lambda x: 0 <= x <= 1000,
         },
-        'View/grid_style': {
-            'default': 'none',
-            'validate': lambda x: x in ('none', 'lines', 'dots'),
-        },
-        'View/grid_spacing': {
-            'default': 50,
+        'View/window_corner_radius': {
+            'default': 8,
             'cast': int,
-            'validate': lambda x: 5 <= x <= 1000,
-        },
-        'View/grid_snap': {
-            'default': False,
-            'cast': bool,
+            'validate': lambda x: 0 <= x <= 32,
         },
         'View/remember_scene_layouts': {
             'default': False,

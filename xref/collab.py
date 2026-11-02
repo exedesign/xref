@@ -1965,14 +1965,9 @@ class CollabSession(QtCore.QObject):
         }
 
     def _canvas_state(self):
-        """Canvas settings the browser mirrors (colour, grid, titles)."""
+        """Canvas settings the browser mirrors (colour, titles)."""
 
         settings = XRefSettings()
-        try:
-            style = settings.valueOrDefault('View/grid_style')
-            spacing = int(settings.valueOrDefault('View/grid_spacing'))
-        except Exception:  # noqa: BLE001 - settings not ready
-            style, spacing = 'none', 50
         try:
             titles = bool(settings.valueOrDefault(
                 'Items/show_media_titles'))
@@ -1983,8 +1978,7 @@ class CollabSession(QtCore.QObject):
         if views:
             qcolor = views[0].backgroundBrush().color()
             colour = qcolor.name()
-        return {'grid': {'style': style, 'spacing': spacing},
-                'colour': colour,
+        return {'colour': colour,
                 'show_titles': titles}
 
     def web_pending_assets(self):
