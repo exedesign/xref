@@ -368,8 +368,8 @@ def test_f3d_native_mouse_controls_preserve_camera(tmp_path):
         before = renderer.camera_state()
         renderer.set_native_interaction(True)
         renderer.begin_interaction('left', 48, 48)
-        renderer.update_interaction(72, 60)
-        renderer.end_interaction('left', 72, 60)
+        renderer.update_interaction(400, 60)
+        renderer.end_interaction('left', 400, 60)
         after_interaction = renderer.camera_state()
         renderer.render(96, 96, 30, 20, 1)
 

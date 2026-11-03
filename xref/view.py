@@ -2140,9 +2140,7 @@ class XRefGraphicsView(MainControlsMixin,
         width, height = max(1, int(rect.width())), max(1, int(rect.height()))
         x = round(local_pos.x() * width / max(1.0, rect.width()))
         y = round(local_pos.y() * height / max(1.0, rect.height()))
-        return QtCore.QPoint(
-            max(0, min(width - 1, x)),
-            max(0, min(height - 1, y)))
+        return QtCore.QPoint(x, y)
 
     def is_f3d_control_target_global(self, global_pos):
         if (not model3d.F3D_ENABLED

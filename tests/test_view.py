@@ -1215,6 +1215,19 @@ def test_f3d_right_drag_is_not_captured_as_window_drag(view):
     assert view._right_window_drag_start is None
 
 
+def test_f3d_drag_coordinates_continue_beyond_model_bounds(view):
+    item = XRefModelItem(filename='model.glb')
+    item.setPos(40, 40)
+    view.scene.addItem(item)
+    center = view.mapFromScene(
+        item.mapToScene(item.bounding_rect_unselected().center()))
+    beyond_model = center + QtCore.QPoint(item._width * 2, 0)
+
+    f3d_pos = view.model_item_position(item, beyond_model)
+
+    assert f3d_pos.x() > item._width
+
+
 def test_right_click_drag_moves_window(view):
     start = QtCore.QPoint(100, 100)
     delta = QtCore.QPoint(60, 35)
