@@ -2144,6 +2144,13 @@ class XRefGraphicsView(MainControlsMixin,
             max(0, min(width - 1, x)),
             max(0, min(height - 1, y)))
 
+    def is_f3d_control_target_global(self, global_pos):
+        if (not model3d.F3D_ENABLED
+                or self._model_camera_item is None):
+            return False
+        viewport_pos = self.viewport().mapFromGlobal(global_pos)
+        return self.model_item_at(viewport_pos) is self._model_camera_item
+
     def handle_window_resize_press(self, event):
         """Starts a native resize from the outer edge of a frameless window.
 

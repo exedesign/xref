@@ -99,7 +99,9 @@ class XRefMainWindow(QtWidgets.QMainWindow):
                 self.view.update_before_after_cursor(
                     event.globalPosition().toPoint())
             if (event_type == QtCore.QEvent.Type.MouseButtonPress
-                    and event.button() == QtCore.Qt.MouseButton.RightButton):
+                    and event.button() == QtCore.Qt.MouseButton.RightButton
+                    and not self.view.is_f3d_control_target_global(
+                        event.globalPosition().toPoint())):
                 self.view.begin_right_window_drag(event)
                 return True
             if (event_type == QtCore.QEvent.Type.MouseMove

@@ -99,6 +99,10 @@ TRANSLATIONS = {
         'model to return to canvas controls':
             'F3D kontrolleri etkin; tuval kontrollerine dönmek için '
             'Escape tuşuna basın veya modelin dışına tıklayın',
+        'Left-drag: rotate  |  Middle: pan  |  Right: zoom':
+            'Sol tuşla sürükle: döndür  |  Orta: kaydır  |  Sağ: yakınlaştır',
+        'Wheel: zoom  |  Esc: exit':
+            'Tekerlek: yakınlaştır  |  Esc: çıkış',
         '3D model could not be loaded': '3D model yüklenemedi',
         'Click to lock this frame': 'Bu kareyi kilitlemek için tıklayın',
         'Click to browse the frames again':

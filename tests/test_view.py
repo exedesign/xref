@@ -1195,6 +1195,26 @@ def test_f3d_controls_activate_only_on_model(view):
         assert view.active_mode is None
 
 
+def test_f3d_right_drag_is_not_captured_as_window_drag(view):
+    item = XRefModelItem(filename='model.glb')
+    item.setPos(40, 40)
+    item._renderer = MagicMock()
+    view.scene.addItem(item)
+    view._model_camera_item = item
+    point = view.mapFromScene(
+        item.mapToScene(item.bounding_rect_unselected().center()))
+    global_pos = view.viewport().mapToGlobal(point)
+    event = _mouse_event(
+        QtCore.QEvent.Type.MouseButtonPress, point, global_pos,
+        Qt.MouseButton.RightButton, Qt.MouseButton.RightButton)
+
+    with patch('xref.view.model3d.F3D_ENABLED', True):
+        filtered = view.parent.eventFilter(view.viewport(), event)
+
+    assert filtered is False
+    assert view._right_window_drag_start is None
+
+
 def test_right_click_drag_moves_window(view):
     start = QtCore.QPoint(100, 100)
     delta = QtCore.QPoint(60, 35)

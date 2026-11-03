@@ -2384,6 +2384,8 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             self.paint_lock_indicator(painter)
         if self._controls_visible():
             self._paint_controls(painter)
+        if self._f3d_controls_active:
+            self._paint_f3d_controls_hint(painter)
         self.paint_selectable(painter, option, widget)
 
     def _paint_placeholder(self, painter, rect):
@@ -2393,6 +2395,40 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         painter.setPen(QtGui.QColor(230, 230, 230))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter,
                          tr('3D model could not be loaded'))
+
+    def _paint_f3d_controls_hint(self, painter):
+        margin = self.fixed_length_for_viewport(8)
+        font = painter.font()
+        font.setPointSizeF(max(7.0, self.fixed_length_for_viewport(9)))
+        painter.save()
+        painter.setFont(font)
+        lines = (
+            tr('Left-drag: rotate  |  Middle: pan  |  Right: zoom'),
+            tr('Wheel: zoom  |  Esc: exit'),
+        )
+        metrics = QtGui.QFontMetricsF(font)
+        width = min(
+            self._width - 2 * margin,
+            max(metrics.horizontalAdvance(line) for line in lines)
+            + 2 * margin)
+        height = 2 * metrics.height() + 3 * margin
+        hint_rect = QtCore.QRectF(
+            margin, self._height - height - margin, width, height)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(0, 0, 0, 190))
+        painter.drawRoundedRect(hint_rect, margin, margin)
+        painter.setPen(QtGui.QColor(255, 255, 255))
+        for index, line in enumerate(lines):
+            line_rect = QtCore.QRectF(
+                hint_rect.left() + margin,
+                hint_rect.top() + margin + index * metrics.height(),
+                hint_rect.width() - 2 * margin,
+                metrics.height())
+            painter.drawText(
+                line_rect,
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                line)
+        painter.restore()
 
     def _paint_model(self, painter, rect):
         """Draws the cached projection of the mesh.
