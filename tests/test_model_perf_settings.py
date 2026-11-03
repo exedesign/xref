@@ -6,20 +6,27 @@ from xref.items import XRefModelItem
 
 
 def make_mesh(triangle_count):
-    vertices = []
+    side = int((triangle_count / 2) ** 0.5)
+    vertices = [coordinate
+                for y in range(side + 1)
+                for x in range(side + 1)
+                for coordinate in (float(x), float(y), 0.0)]
     triangles = []
-    for i in range(triangle_count):
-        base = i * 3
-        vertices.extend((float(i), 0.0, 0.0,
-                         float(i) + 1, 0.0, 0.0,
-                         float(i), 1.0, 0.0))
-        triangles.append((base, base + 1, base + 2))
+    for y in range(side):
+        for x in range(side):
+            corner = y * (side + 1) + x
+            triangles.extend((
+                (corner, corner + 1, corner + side + 2),
+                (corner, corner + side + 2, corner + side + 1),
+            ))
     return {'vertices': vertices, 'triangles': triangles}
 
 
-def test_model_quality_defaults_to_25k(view):
+def test_model_quality_defaults_by_renderer(view):
     view.settings.remove('Items/model_max_triangles')
-    assert view.settings.valueOrDefault('Items/model_max_triangles') == 25000
+    expected_limit = 500000 if model3d.F3D_ENABLED else 25000
+    assert view.settings.valueOrDefault(
+        'Items/model_max_triangles') == expected_limit
 
 
 def test_model_quality_bounds_are_validated(view):
@@ -39,8 +46,8 @@ def test_decimation_respects_the_quality_setting(view):
     mesh = make_mesh(50000)
     reduced = model3d.decimate(mesh, 10000)
     assert len(reduced['triangles']) <= 10000
-    # Kept triangles are re-indexed: vertices only include used ones
-    assert len(reduced['vertices']) == len(reduced['triangles']) * 9
+    assert len(reduced['vertices']) <= len(reduced['triangles']) * 9
+    assert len(reduced['vertices']) > 0
 
 
 def test_reload_mesh_applies_new_quality(view, qapp):

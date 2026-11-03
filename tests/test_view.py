@@ -7,10 +7,10 @@ from unittest.mock import MagicMock, patch, mock_open
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
-from xref import commands, constants, widgets
+from xref import commands, constants, model3d, widgets
 from xref.actions import actions
 from xref.config import logfile_name
-from xref.items import XRefPixmapItem, XRefTextItem
+from xref.items import XRefModelItem, XRefPixmapItem, XRefTextItem
 from xref.view import XRefGraphicsView
 
 
@@ -78,6 +78,35 @@ def test_on_scene_changed_when_no_items(show_mock, view):
         r.assert_called()  # empty scene recalcs immediately
         show_mock.assert_called_once_with()
         assert view.get_scale() == 1
+
+
+def test_on_action_maximize(view):
+    with patch.object(view.parent, 'isMaximized', return_value=False), \
+            patch.object(view.parent, 'showMaximized') as maximize, \
+            patch.object(view, 'view_centre_scene', return_value=None), \
+            patch.object(view, 'schedule_recentre') as recenter:
+        view.on_action_maximize()
+
+    maximize.assert_called_once_with()
+    recenter.assert_called_once_with(None)
+
+
+def test_on_action_restore_from_maximized(view):
+    with patch.object(view.parent, 'isMaximized', return_value=True), \
+            patch.object(view.parent, 'showNormal') as restore, \
+            patch.object(view, 'view_centre_scene', return_value=None), \
+            patch.object(view, 'schedule_recentre') as recenter:
+        view.on_action_maximize()
+
+    restore.assert_called_once_with()
+    recenter.assert_called_once_with(None)
+
+
+def test_on_action_minimize(view):
+    with patch.object(view.parent, 'showMinimized') as minimize:
+        view.on_action_minimize()
+
+    minimize.assert_called_once_with()
 
 
 def test_get_supported_image_formats_for_reading(view):
@@ -841,6 +870,112 @@ def test_on_selection_changed_grayscale_action_ignores_textitem(view):
     assert actions.actions['grayscale'].qaction.isChecked() is False
 
 
+def test_match_before_after_action_aligns_two_images(view):
+    before = XRefPixmapItem(QtGui.QImage(
+        100, 50, QtGui.QImage.Format.Format_RGB32))
+    after = XRefPixmapItem(QtGui.QImage(
+        100, 50, QtGui.QImage.Format.Format_RGB32))
+    before.setPos(20, 30)
+    after.setPos(300, 180)
+    after.setScale(2)
+    view.scene.addItem(before)
+    view.scene.addItem(after)
+    before.setSelected(True)
+    after.setSelected(True)
+
+    assert actions.actions['match_before_after'].qaction.isEnabled()
+    view.on_action_match_before_after()
+
+    before_rect = view.scene.itemsBoundingRect(items=[before])
+    after_rect = view.scene.itemsBoundingRect(items=[after])
+    assert before_rect.size() == after_rect.size()
+    assert before_rect.center() == after_rect.center()
+    assert before.before_after_role == 'before'
+    assert after.before_after_role == 'after'
+    view.undo_stack.undo()
+    assert before.before_after_pair_id is None
+    assert after.before_after_pair_id is None
+
+
+@patch('xref.widgets.XRefNotification')
+def test_match_before_after_rejects_different_aspect_ratios(
+        notification_mock, view):
+    before = XRefPixmapItem(QtGui.QImage(
+        100, 50, QtGui.QImage.Format.Format_RGB32))
+    after = XRefPixmapItem(QtGui.QImage(
+        100, 60, QtGui.QImage.Format.Format_RGB32))
+    view.scene.addItem(before)
+    view.scene.addItem(after)
+    before.setSelected(True)
+    after.setSelected(True)
+
+    view.on_action_match_before_after()
+
+    notification_mock.assert_called_once()
+    assert before.before_after_pair_id is None
+    assert after.before_after_pair_id is None
+
+
+def test_before_after_paint_reveals_left_side(view):
+    before_image = QtGui.QImage(
+        10, 10, QtGui.QImage.Format.Format_ARGB32)
+    before_image.fill(QtGui.QColor(0, 0, 255))
+    before = XRefPixmapItem(before_image)
+    before.before_after_pair_id = 'pair-id'
+    before.before_after_role = 'before'
+    after_image = QtGui.QImage(
+        10, 10, QtGui.QImage.Format.Format_ARGB32)
+    after_image.fill(QtGui.QColor(255, 0, 0))
+    after = XRefPixmapItem(after_image)
+    after.before_after_pair_id = 'pair-id'
+    after.before_after_role = 'after'
+    after._before_after_reveal_x = 5
+    view.scene.addItem(before)
+    view.scene.addItem(after)
+
+    rendered = QtGui.QImage(
+        10, 10, QtGui.QImage.Format.Format_ARGB32)
+    rendered.fill(QtCore.Qt.GlobalColor.transparent)
+    painter = QtGui.QPainter(rendered)
+    view.scene.render(
+        painter, QtCore.QRectF(0, 0, 10, 10),
+        QtCore.QRectF(0, 0, 10, 10))
+    painter.end()
+
+    assert rendered.pixelColor(2, 5) == QtGui.QColor(255, 0, 0)
+    assert rendered.pixelColor(8, 5) == QtGui.QColor(0, 0, 255)
+
+
+def test_before_after_cursor_tracks_pointer_and_resets(view):
+    before_image = QtGui.QImage(
+        20, 10, QtGui.QImage.Format.Format_RGB32)
+    before = XRefPixmapItem(before_image)
+    after_image = QtGui.QImage(
+        12, 6, QtGui.QImage.Format.Format_RGB32)
+    after = XRefPixmapItem(after_image)
+    after.setPos(2, 1)
+    after.setZValue(1)
+    view.scene.addItem(before)
+    view.scene.addItem(after)
+
+    scene_point = QtCore.QPointF(6, 5)
+    viewport_point = view.mapFromScene(scene_point)
+    global_point = view.viewport().mapToGlobal(viewport_point)
+    view._before_after_active = True
+    view.update_before_after_cursor(global_point)
+    assert after._before_after_reveal_x == view.mapToScene(viewport_point).x()
+    assert after.pos() == QtCore.QPointF(2, 1)
+
+    after.setZValue(-1)
+    before.setZValue(2)
+    view.update_before_after_cursor(global_point)
+    assert before._before_after_reveal_x == view.mapToScene(viewport_point).x()
+    assert after._before_after_reveal_x is None
+
+    view.update_before_after_cursor(QtCore.QPoint(-100, -100))
+    assert before._before_after_reveal_x is None
+
+
 def test_on_action_reset_scale(view, item):
     view.scene.addItem(item)
     item.setScale(2)
@@ -997,56 +1132,129 @@ def test_frameless_window_edges_are_resize_handles(view):
             Qt.CursorShape.SizeFDiagCursor)
 
 
-def test_window_edge_move_area(view):
-    view.parent.resize(400, 300)
-    view.on_action_show_titlebar(False)
-    assert view.window_move_margin() == 10
-    Edge = Qt.Edge
-    # The outermost pixels resize, the band inside of them moves the window
-    assert view.window_edge_hit(QtCore.QPoint(2, 150)) == (
-        'resize', Edge.LeftEdge)
-    assert view.window_edge_hit(QtCore.QPoint(10, 150)) == ('move', None)
-    assert view.window_edge_hit(QtCore.QPoint(398, 150)) == (
-        'resize', Edge.RightEdge)
-    assert view.window_edge_hit(QtCore.QPoint(390, 150)) == ('move', None)
-    assert view.window_edge_hit(QtCore.QPoint(200, 2)) == (
-        'resize', Edge.TopEdge)
-    assert view.window_edge_hit(QtCore.QPoint(200, 12)) == ('move', None)
-    assert view.window_edge_hit(QtCore.QPoint(200, 298)) == (
-        'resize', Edge.BottomEdge)
-    assert view.window_edge_hit(QtCore.QPoint(200, 290)) == ('move', None)
-    assert view.window_edge_hit(QtCore.QPoint(200, 150)) is None
-
-
 def test_window_corners_resize_diagonally(view):
     view.parent.resize(400, 300)
     view.on_action_show_titlebar(False)
     Edge = Qt.Edge
-    assert view.window_edge_hit(QtCore.QPoint(10, 10)) == (
-        'resize', Edge.LeftEdge | Edge.TopEdge)
-    assert view.window_edge_hit(QtCore.QPoint(392, 292)) == (
-        'resize', Edge.RightEdge | Edge.BottomEdge)
+    assert view.resize_edges_at(QtCore.QPoint(2, 2)) == (
+        Edge.LeftEdge | Edge.TopEdge)
+    assert view.resize_edges_at(QtCore.QPoint(398, 298)) == (
+        Edge.RightEdge | Edge.BottomEdge)
+    assert view.resize_edges_at(QtCore.QPoint(10, 150)) is None
+    assert view.resize_edges_at(QtCore.QPoint(150, 150)) is None
 
 
-def test_window_move_area_width_is_configurable(view):
-    view.parent.resize(400, 300)
-    view.on_action_show_titlebar(False)
-    view.settings.setValue('View/window_move_margin', 0)
-    assert view.window_edge_hit(QtCore.QPoint(10, 150)) is None
-    view.settings.setValue('View/window_move_margin', 30)
-    assert view.window_edge_hit(QtCore.QPoint(10, 150)) == ('move', None)
-    assert view.window_edge_hit(QtCore.QPoint(34, 150)) == ('move', None)
-    assert view.window_edge_hit(QtCore.QPoint(40, 150)) is None
-    view.settings.setValue('View/window_move_margin', 10)
+def _mouse_event(event_type, local_pos, global_pos, button, buttons):
+    return QtGui.QMouseEvent(
+        event_type,
+        QtCore.QPointF(local_pos),
+        QtCore.QPointF(local_pos),
+        QtCore.QPointF(global_pos),
+        button,
+        buttons,
+        Qt.KeyboardModifier.NoModifier)
 
 
-def test_window_move_area_shows_a_move_cursor(view):
-    view.parent.resize(400, 300)
-    view.on_action_show_titlebar(False)
-    view.update_window_edge_cursor(QtCore.QPoint(10, 150))
-    assert view.viewport().cursor().shape() == Qt.CursorShape.SizeAllCursor
-    view.update_window_edge_cursor(QtCore.QPoint(200, 150))
-    assert view.viewport().cursor().shape() != Qt.CursorShape.SizeAllCursor
+def test_f3d_controls_activate_only_on_model(view):
+    item = XRefModelItem(filename='model.glb')
+    item.setPos(40, 40)
+    item._renderer = MagicMock()
+    view.scene.addItem(item)
+    point = view.mapFromScene(
+        item.mapToScene(item.bounding_rect_unselected().center()))
+    global_pos = view.viewport().mapToGlobal(point)
+
+    with patch.object(model3d, 'F3D_ENABLED', True), \
+            patch.object(item, 'activate_f3d_controls',
+                         return_value=True), \
+            patch.object(item, 'begin_f3d_interaction') as begin, \
+            patch.object(item, 'update_f3d_interaction') as update, \
+            patch.object(item, 'end_f3d_interaction') as end:
+        view.mousePressEvent(_mouse_event(
+            QtCore.QEvent.Type.MouseButtonPress, point, global_pos,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton))
+        assert view._model_camera_item is item
+        begin.assert_called_once_with(
+            'left', view.model_item_position(item, point))
+
+        moved = point + QtCore.QPoint(12, 8)
+        view.mouseMoveEvent(_mouse_event(
+            QtCore.QEvent.Type.MouseMove, moved,
+            view.viewport().mapToGlobal(moved),
+            Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton))
+        update.assert_called_once_with(
+            view.model_item_position(item, moved))
+
+        view.mouseReleaseEvent(_mouse_event(
+            QtCore.QEvent.Type.MouseButtonRelease, moved,
+            view.viewport().mapToGlobal(moved),
+            Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton))
+        end.assert_called_once_with(
+            'left', view.model_item_position(item, moved))
+        assert view._model_camera_item is item
+        assert view.active_mode is None
+
+
+def test_right_click_drag_moves_window(view):
+    start = QtCore.QPoint(100, 100)
+    delta = QtCore.QPoint(60, 35)
+    origin = view.parent.pos()
+
+    view.mousePressEvent(_mouse_event(
+        QtCore.QEvent.Type.MouseButtonPress, QtCore.QPoint(20, 20), start,
+        Qt.MouseButton.RightButton, Qt.MouseButton.RightButton))
+    with patch.object(view.parent, 'move') as move_mock, \
+            patch.object(view, 'on_context_menu') as context_menu:
+        event = _mouse_event(
+            QtCore.QEvent.Type.MouseMove, QtCore.QPoint(80, 55),
+            start + delta, Qt.MouseButton.NoButton,
+            Qt.MouseButton.RightButton)
+        view.mouseMoveEvent(event)
+        move_mock.assert_called_once_with(origin + delta)
+
+    release = _mouse_event(
+        QtCore.QEvent.Type.MouseButtonRelease,
+        QtCore.QPoint(80, 55), start + delta,
+        Qt.MouseButton.RightButton, Qt.MouseButton.NoButton)
+    view.mouseReleaseEvent(release)
+    assert view._right_window_drag_start is None
+    context_menu.assert_not_called()
+
+
+def test_right_drag_release_position_suppresses_context_menu(view):
+    start = QtCore.QPoint(100, 100)
+    delta = QtCore.QPoint(50, 25)
+    origin = view.parent.pos()
+    view.mousePressEvent(_mouse_event(
+        QtCore.QEvent.Type.MouseButtonPress, QtCore.QPoint(20, 20), start,
+        Qt.MouseButton.RightButton, Qt.MouseButton.RightButton))
+
+    with patch.object(view.parent, 'move') as move_mock, \
+            patch.object(view, 'on_context_menu') as context_menu:
+        release = _mouse_event(
+            QtCore.QEvent.Type.MouseButtonRelease,
+            QtCore.QPoint(70, 45), start + delta,
+            Qt.MouseButton.RightButton, Qt.MouseButton.NoButton)
+        view.mouseReleaseEvent(release)
+
+    move_mock.assert_called_once_with(origin + delta)
+    context_menu.assert_not_called()
+
+
+def test_right_click_without_drag_opens_context_menu(view):
+    start = view.mapToGlobal(QtCore.QPoint(25, 30))
+    view.mousePressEvent(_mouse_event(
+        QtCore.QEvent.Type.MouseButtonPress, QtCore.QPoint(25, 30), start,
+        Qt.MouseButton.RightButton, Qt.MouseButton.RightButton))
+
+    with patch.object(view, 'on_context_menu') as context_menu:
+        release = _mouse_event(
+            QtCore.QEvent.Type.MouseButtonRelease,
+            QtCore.QPoint(25, 30), start,
+            Qt.MouseButton.RightButton, Qt.MouseButton.NoButton)
+        view.mouseReleaseEvent(release)
+
+    context_menu.assert_called_once_with(QtCore.QPoint(25, 30))
 
 
 def press(widget, pos):
@@ -1166,26 +1374,23 @@ def test_maximise_keeps_the_canvas_centred(view, qapp):
     assert abs(centre_drift(view, reference)[1]) < 2
 
 
-def test_welcome_overlay_moves_and_resizes_the_window(view):
+def test_welcome_overlay_only_resizes_at_outer_edge(view):
     overlay = view.welcome_overlay
     assert overlay.isVisible()
-    move_mock = MagicMock(return_value=True)
     resize_mock = MagicMock(return_value=True)
-    view.start_window_move = move_mock
     view.start_window_resize = resize_mock
 
     middle_y = view.viewport().height() / 2
     press(overlay, QtCore.QPointF(12, middle_y))
-    assert move_mock.called
+    resize_mock.assert_not_called()
 
+    resize_mock.reset_mock()
     press(overlay, QtCore.QPointF(2, middle_y))
     assert resize_mock.called
     assert resize_mock.call_args[0][0] == Qt.Edge.LeftEdge
 
-    move_mock.reset_mock()
     resize_mock.reset_mock()
     press(overlay, QtCore.QPointF(view.viewport().width() / 2, middle_y))
-    assert not move_mock.called
     assert not resize_mock.called
 
 
@@ -1237,18 +1442,28 @@ def test_welcome_overlay_forwards_pan(view):
     assert view.active_mode == view.PAN_MODE
 
 
-def test_welcome_overlay_shows_the_window_edge_cursor(view):
+def test_welcome_overlay_shows_a_resize_cursor_only_at_outer_edge(view):
     overlay = view.welcome_overlay
     middle_y = view.viewport().height() / 2
     event = QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseMove,
+        QtCore.QPointF(2, middle_y),
+        QtCore.QPointF(2, middle_y),
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier)
+    overlay.mouseMoveEvent(event)
+    assert overlay.cursor().shape() == Qt.CursorShape.SizeHorCursor
+    inside = QtGui.QMouseEvent(
         QtCore.QEvent.Type.MouseMove,
         QtCore.QPointF(12, middle_y),
         QtCore.QPointF(12, middle_y),
         Qt.MouseButton.NoButton,
         Qt.MouseButton.NoButton,
         Qt.KeyboardModifier.NoModifier)
-    overlay.mouseMoveEvent(event)
-    assert overlay.cursor().shape() == Qt.CursorShape.SizeAllCursor
+    overlay.mouseMoveEvent(inside)
+    assert overlay.cursor().shape() != Qt.CursorShape.SizeAllCursor
+    assert overlay.cursor().shape() != Qt.CursorShape.SizeHorCursor
     middle = QtGui.QMouseEvent(
         QtCore.QEvent.Type.MouseMove,
         QtCore.QPointF(view.viewport().width() / 2, middle_y),

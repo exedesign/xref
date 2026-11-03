@@ -105,6 +105,54 @@ class MoveItemsTo(QtGui.QUndoCommand):
             item.setPos(self.old_positions[id(item)])
 
 
+class MatchBeforeAfter(QtGui.QUndoCommand):
+    """Align two image items and retain their before/after relationship."""
+
+    def __init__(self, scene, before_item, after_item, scale_factors,
+                 center, pair_id):
+        super().__init__('Match before/after')
+        self.scene = scene
+        self.items = (before_item, after_item)
+        self.scale_factors = tuple(scale_factors)
+        self.center = center
+        self.pair_id = pair_id
+        self.after_z = max(scene.max_z + scene.Z_STEP,
+                           before_item.zValue() + scene.Z_STEP)
+        self.old_state = [
+            (item.pos(), item.scale(), item.zValue(),
+             getattr(item, 'before_after_pair_id', None),
+             getattr(item, 'before_after_role', None))
+            for item in self.items
+        ]
+
+    def redo(self):
+        before_item, after_item = self.items
+        for item, factor in zip(self.items, self.scale_factors):
+            item.setScale(item.scale() * factor, anchor=item.center)
+            rect = self.scene.itemsBoundingRect(items=[item])
+            item.setPos(item.pos() + self.center - rect.center())
+            item._before_after_reveal_x = None
+
+        before_item.before_after_pair_id = self.pair_id
+        before_item.before_after_role = 'before'
+        after_item.before_after_pair_id = self.pair_id
+        after_item.before_after_role = 'after'
+        after_item.setZValue(self.after_z)
+        for item in self.items:
+            item.update()
+
+    def undo(self):
+        for item, state in zip(self.items, self.old_state):
+            pos, scale, z_value, pair_id, role = state
+            item.setScale(scale, anchor=item.center)
+            item.setPos(pos)
+            item.setZValue(z_value)
+            item.before_after_pair_id = pair_id
+            item.before_after_role = role
+            item._before_after_reveal_x = None
+            item.update()
+
+
 class ScaleItemsBy(QtGui.QUndoCommand):
     """Scale items by a given factor around the given anchor."""
 

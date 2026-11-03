@@ -18,8 +18,7 @@ from xref.i18n import tr  # noqa: E402
 
 
 IMG_LOADING_ERROR_MSG = (
-    'Unknown format or too big?\n'
-    'Check Settings -> Images & Items -> Maximum Image Size')
+    'The file format is unsupported or the image is damaged.')
 
 
 class XRefFileIOError(Exception):

@@ -6,9 +6,9 @@ from xref.widgets.settings import (
     ArrangeGapWidget,
     CanvasColorWidget,
     ConfirmCloseUnsavedWidget,
+    ImagePreviewMaxDimensionWidget,
     ImageStorageFormatWidget,
     SettingsDialog,
-    WindowMoveMarginWidget,
 )
 
 
@@ -51,6 +51,14 @@ def test_image_storage_format_on_restore_defaults(settings, view):
     assert widget.buttons['png'].isChecked() is False
     assert widget.buttons['jpg'].isChecked() is False
     assert widget.title() == 'Image Storage Format:'
+
+
+def test_image_preview_max_dimension_reads_and_saves(settings, view):
+    widget = ImagePreviewMaxDimensionWidget()
+    assert widget.input.value() == 4096
+    widget.set_value(2048)
+    assert settings.valueOrDefault(
+        'Items/image_preview_max_dimension') == 2048
 
 
 def test_arrange_gap_initialises_input_from_settings(settings, view):
@@ -96,26 +104,6 @@ def test_canvas_color_saves_change(settings, view):
     widget.set_value('#abcdef')
     widget.on_value_changed(widget.color.name())
     assert settings.valueOrDefault('View/canvas_color') == '#abcdef'
-
-
-def test_window_move_margin_default_is_ten(settings, view):
-    settings.remove('View/window_move_margin')
-    widget = WindowMoveMarginWidget()
-    assert widget.input.value() == 10
-    assert widget.input.minimum() == 0
-    assert widget.input.maximum() == 60
-
-
-def test_window_move_margin_initialises_input_from_settings(settings, view):
-    settings.setValue('View/window_move_margin', 24)
-    widget = WindowMoveMarginWidget()
-    assert widget.input.value() == 24
-
-
-def test_window_move_margin_saves_change(settings, view):
-    widget = WindowMoveMarginWidget()
-    widget.set_value(4)
-    assert settings.valueOrDefault('View/window_move_margin') == 4
 
 
 def test_arrange_gap_on_restore_defaults(settings, view):
@@ -173,3 +161,17 @@ def test_settings_dialog_on_restore_defaults(msg_mock, settings, view):
     assert settings.valueOrDefault('Items/image_storage_format') == 'best'
     assert settings.valueOrDefault('Items/arrange_gap') == 0
     assert settings.valueOrDefault('Save/confirm_close_unsaved') is True
+
+
+def test_settings_dialog_has_category_navigation(settings, view):
+    dialog = SettingsDialog(view)
+    categories = [
+        dialog.categories.item(index).text()
+        for index in range(dialog.categories.count())
+    ]
+    assert categories == [
+        'Performance', 'Appearance', 'Saving and loading', 'Window',
+        'Images', 'Keyboard shortcuts', 'System']
+    dialog.search_input.setText('Preview')
+    assert dialog.categories.item(0).isHidden() is False
+    assert dialog.categories.item(1).isHidden() is True

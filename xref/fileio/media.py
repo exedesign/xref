@@ -24,7 +24,9 @@ from urllib import parse, request
 
 from PyQt6 import QtCore
 
-from .image import load_image
+from xref import model3d
+
+from .image import load_image_preview
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +40,8 @@ VIDEO_EXTENSIONS = (
 # Multi-page documents
 PDF_EXTENSIONS = ('.pdf',)
 
-# Simple 3D models, rendered in software (see xref/model3d.py)
-MODEL3D_EXTENSIONS = ('.obj', '.stl', '.ply', '.fbx', '.glb', '.gltf', '.usdz')
+# 3D formats exposed by the active renderer.
+MODEL3D_EXTENSIONS = model3d.MODEL_EXTENSIONS
 
 # mimetypes doesn't recognise some extensions on all platforms; make
 # sure we classify them correctly
@@ -225,7 +227,7 @@ def load_pdf(path):
     return local
 
 
-def load_media(path):
+def load_media(path, image_preview_max_dimension=4096):
     """Load any supported media file or URL (image or video).
 
     :param str | QtCore.QUrl path: File name or URL
@@ -255,19 +257,21 @@ def load_media(path):
         return ('video', local, os.path.basename(local))
 
     if mt == 'image':
-        img, resolved = load_image(path)
-        if img.isNull():
+        preview, resolved = load_image_preview(
+            path, image_preview_max_dimension)
+        if preview.image.isNull():
             logger.info(f'Could not load {path} as image')
             return None
-        return ('image', img, resolved)
+        return ('image', preview, resolved)
 
     # Unknown type: try PDF, then image, then video
     local = load_pdf(path)
     if local:
         return ('pdf', local, os.path.basename(local))
-    img, resolved = load_image(path)
-    if not img.isNull():
-        return ('image', img, resolved)
+    preview, resolved = load_image_preview(
+        path, image_preview_max_dimension)
+    if not preview.image.isNull():
+        return ('image', preview, resolved)
     local = load_video(path)
     if local:
         return ('video', local, os.path.basename(local))

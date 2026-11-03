@@ -327,10 +327,16 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
     TYPE = 'pixmap'
     CROP_HANDLE_SIZE = 15
 
-    def __init__(self, image, filename=None, **kwargs):
+    def __init__(self, image, filename=None, source_image_bytes=None,
+                 source_image_size=None, source_image_format=None,
+                 **kwargs):
         super().__init__(QtGui.QPixmap.fromImage(image))
         self.save_id = None
         self.filename = filename
+        self._source_image_bytes = source_image_bytes
+        self._source_image_size = QtCore.QSize(
+            source_image_size or image.size())
+        self._source_image_format = source_image_format
         self.reset_crop()
         logger.debug(f'Initialized {self}')
         self.is_image = True
@@ -338,6 +344,9 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
         self.init_selectable()
         self.settings = XRefSettings()
         self.grayscale = False
+        self.before_after_pair_id = None
+        self.before_after_role = None
+        self._before_after_reveal_x = None
 
     @classmethod
     def create_from_data(self, **kwargs):
@@ -348,10 +357,12 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
             item.crop = QtCore.QRectF(*data['crop'])
         item.setOpacity(data.get('opacity', 1))
         item.grayscale = data.get('grayscale', False)
+        item.before_after_pair_id = data.get('before_after_pair_id')
+        item.before_after_role = data.get('before_after_role')
         return item
 
     def __str__(self):
-        size = self.pixmap().size()
+        size = self._source_image_size
         return (f'Image "{self.filename}" {size.width()} x {size.height()}')
 
     @property
@@ -420,7 +431,9 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
             pm = self.pixmap()
         img = pm.toImage()
 
-        color = img.pixelColor(int(ipos.x()), int(ipos.y()))
+        x = ipos.x() * img.width() / self._source_image_size.width()
+        y = ipos.y() * img.height() / self._source_image_size.height()
+        color = img.pixelColor(int(x), int(y))
         if color.alpha():
             return color
 
@@ -454,6 +467,8 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
         return {'filename': self.filename,
                 'opacity': self.opacity(),
                 'grayscale': self.grayscale,
+                'before_after_pair_id': self.before_after_pair_id,
+                'before_after_role': self.before_after_role,
                 'crop': [self.crop.topLeft().x(),
                          self.crop.topLeft().y(),
                          self.crop.width(),
@@ -487,16 +502,50 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
 
     def pixmap_to_bytes(self, apply_grayscale=False, apply_crop=False):
         """Convert the pixmap data to PNG bytestring."""
+        if (self._source_image_bytes is not None
+                and not apply_grayscale and not apply_crop):
+            image_format = (self._source_image_format
+                            or os.path.splitext(self.filename or '')[1]
+                            .lstrip('.').lower()
+                            or 'png')
+            return self._source_image_bytes, image_format
+
         barray = QtCore.QByteArray()
         buffer = QtCore.QBuffer(barray)
         buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
-        if apply_grayscale and self.grayscale:
-            pm = self._grayscale_pixmap
+        if self._source_image_bytes is not None:
+            from xref.fileio.image import preview_from_bytes
+            source = preview_from_bytes(
+                self._source_image_bytes, 0).image
+            pm = QtGui.QPixmap.fromImage(source)
+            if apply_grayscale and self.grayscale:
+                gray = QtGui.QImage(
+                    source.size(), QtGui.QImage.Format.Format_Grayscale8)
+                gray.fill(QtGui.QColor(*COLORS['Scene:Canvas']))
+                painter = QtGui.QPainter(gray)
+                painter.drawImage(0, 0, source)
+                painter.end()
+                pm = QtGui.QPixmap.fromImage(gray)
         else:
-            pm = self.pixmap()
+            if apply_grayscale and self.grayscale:
+                pm = self._grayscale_pixmap
+            else:
+                pm = self.pixmap()
 
         if apply_crop:
-            pm = pm.copy(self.crop.toRect())
+            if self._source_image_bytes is None:
+                source_rect = QtCore.QRectF(
+                    self.crop.x() * pm.width()
+                    / self._source_image_size.width(),
+                    self.crop.y() * pm.height()
+                    / self._source_image_size.height(),
+                    self.crop.width() * pm.width()
+                    / self._source_image_size.width(),
+                    self.crop.height() * pm.height()
+                    / self._source_image_size.height())
+            else:
+                source_rect = self.crop
+            pm = pm.copy(source_rect.toAlignedRect())
 
         img = pm.toImage()
         imgformat = self.get_imgformat(img)
@@ -505,17 +554,29 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
 
     def setPixmap(self, pixmap):
         super().setPixmap(pixmap)
+        self._source_image_bytes = None
+        self._source_image_size = pixmap.size()
+        self._source_image_format = None
         self.reset_crop()
 
     def pixmap_from_bytes(self, data):
-        """Set image pimap from a bytestring."""
-        pixmap = QtGui.QPixmap()
-        pixmap.loadFromData(data)
-        self.setPixmap(pixmap)
+        """Set the preview pixmap while retaining the original image data."""
+        from xref.fileio.image import preview_from_bytes
+        preview = preview_from_bytes(
+            data, self.settings.valueOrDefault(
+                'Items/image_preview_max_dimension'))
+        super().setPixmap(QtGui.QPixmap.fromImage(preview.image))
+        self._source_image_bytes = bytes(data)
+        self._source_image_size = preview.source_size
+        self._source_image_format = preview.source_format
+        self.reset_crop()
 
     def create_copy(self):
-        item = XRefPixmapItem(QtGui.QImage(), self.filename)
-        item.setPixmap(self.pixmap())
+        item = XRefPixmapItem(
+            self.pixmap().toImage(), self.filename,
+            source_image_bytes=self._source_image_bytes,
+            source_image_size=self._source_image_size,
+            source_image_format=self._source_image_format)
         item.setPos(self.pos())
         item.setZValue(self.zValue())
         item.setScale(self.scale())
@@ -525,6 +586,8 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
         if self.flip() == -1:
             item.do_flip()
         item.crop = self.crop
+        item.before_after_pair_id = self.before_after_pair_id
+        item.before_after_role = self.before_after_role
         return item
 
     @cached_property
@@ -563,11 +626,17 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
         return gamut
 
     def copy_to_clipboard(self, clipboard):
-        clipboard.setPixmap(self.pixmap())
+        if self._source_image_bytes is not None:
+            from xref.fileio.image import preview_from_bytes
+            image = preview_from_bytes(self._source_image_bytes, 0).image
+            clipboard.setImage(image)
+        else:
+            clipboard.setPixmap(self.pixmap())
 
     def reset_crop(self):
         self.crop = QtCore.QRectF(
-            0, 0, self.pixmap().size().width(), self.pixmap().size().height())
+            0, 0, self._source_image_size.width(),
+            self._source_image_size.height())
 
     @property
     def crop_handle_size(self):
@@ -698,8 +767,12 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
             self.paint_debug(painter, option, widget)
 
             # Darken image outside of cropped area
-            painter.drawPixmap(0, 0, self.pixmap())
-            path = QtWidgets.QGraphicsPixmapItem.shape(self)
+            painter.drawPixmap(
+                QtCore.QRectF(0, 0, self.width, self.height),
+                self.pixmap(),
+                QtCore.QRectF(self.pixmap().rect()))
+            path = QtGui.QPainterPath()
+            path.addRect(QtCore.QRectF(0, 0, self.width, self.height))
             path.addRect(self.crop_temp)
             color = QtGui.QColor(0, 0, 0)
             color.setAlpha(100)
@@ -713,7 +786,44 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
             self.draw_crop_rect(painter, self.crop_temp)
         else:
             pm = self._grayscale_pixmap if self.grayscale else self.pixmap()
-            painter.drawPixmap(self.crop, pm, self.crop)
+            reveal_x = self._before_after_reveal_x
+            source_width = self._source_image_size.width()
+            source_height = self._source_image_size.height()
+            if (source_width > 0 and source_height > 0
+                    and reveal_x is not None):
+                scene_rect = self.mapRectToScene(self.crop)
+                reveal_x = max(scene_rect.left(),
+                               min(float(reveal_x), scene_rect.right()))
+                scene_clip = QtGui.QPainterPath()
+                scene_clip.addRect(QtCore.QRectF(
+                    scene_rect.left(), scene_rect.top(),
+                    reveal_x - scene_rect.left(), scene_rect.height()))
+                painter.save()
+                painter.setClipPath(
+                    self.mapFromScene(scene_clip),
+                    Qt.ClipOperation.IntersectClip)
+                painter.drawPixmap(self.crop, pm, self.crop)
+                painter.restore()
+                pen = QtGui.QPen(QtGui.QColor(255, 255, 255, 220))
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                line_top = self.mapFromScene(
+                    QtCore.QPointF(reveal_x, scene_rect.top()))
+                line_bottom = self.mapFromScene(
+                    QtCore.QPointF(reveal_x, scene_rect.bottom()))
+                painter.drawLine(
+                    line_top, line_bottom)
+            elif source_width > 0 and source_height > 0:
+                source_rect = QtCore.QRectF(
+                    self.crop.x() * pm.width()
+                    / source_width,
+                    self.crop.y() * pm.height()
+                    / source_height,
+                    self.crop.width() * pm.width()
+                    / source_width,
+                    self.crop.height() * pm.height()
+                    / source_height)
+                painter.drawPixmap(self.crop, pm, source_rect)
             self.paint_selectable(painter, option, widget)
 
     def enter_crop_mode(self):
@@ -793,31 +903,34 @@ class XRefPixmapItem(XRefItemMixin, QtWidgets.QGraphicsPixmapItem):
         if handle == self.crop_handle_bottomleft:
             topleft = QtCore.QPointF(0, self.crop_temp.top())
             bottomright = QtCore.QPointF(
-                self.crop_temp.right(), self.pixmap().size().height())
+                self.crop_temp.right(), self._source_image_size.height())
         if handle == self.crop_handle_bottomright:
             topleft = self.crop_temp.topLeft()
             bottomright = QtCore.QPointF(
-                self.pixmap().size().width(), self.pixmap().size().height())
+                self._source_image_size.width(),
+                self._source_image_size.height())
         if handle == self.crop_handle_topright:
             topleft = QtCore.QPointF(self.crop_temp.left(), 0)
             bottomright = QtCore.QPointF(
-                self.pixmap().size().width(), self.crop_temp.bottom())
+                self._source_image_size.width(), self.crop_temp.bottom())
         if handle == self.crop_edge_top:
             topleft = QtCore.QPointF(0, 0)
             bottomright = QtCore.QPointF(
-                self.pixmap().size().width(), self.crop_temp.bottom())
+                self._source_image_size.width(), self.crop_temp.bottom())
         if handle == self.crop_edge_bottom:
             topleft = QtCore.QPointF(0, self.crop_temp.top())
             bottomright = QtCore.QPointF(
-                self.pixmap().size().width(), self.pixmap().size().height())
+                self._source_image_size.width(),
+                self._source_image_size.height())
         if handle == self.crop_edge_left:
             topleft = QtCore.QPointF(0, 0)
             bottomright = QtCore.QPointF(
-                self.crop_temp.right(), self.pixmap().size().height())
+                self.crop_temp.right(), self._source_image_size.height())
         if handle == self.crop_edge_right:
             topleft = QtCore.QPointF(self.crop_temp.left(), 0)
             bottomright = QtCore.QPointF(
-                self.pixmap().size().width(), self.pixmap().size().height())
+                self._source_image_size.width(),
+                self._source_image_size.height())
 
         point.setX(min(bottomright.x(), max(topleft.x(), point.x())))
         point.setY(min(bottomright.y(), max(topleft.y(), point.y())))
@@ -1712,6 +1825,14 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
 
         self.model_bytes = None
         self._temp_model_file = None
+        self._renderer = None
+        self._f3d_load_attempted = False
+        self._usd_fallback = False
+        self._f3d_camera_state = None
+        self._f3d_controls_active = False
+        self._f3d_camera_revision = 0
+        self._f3d_interaction_button = None
+        self._f3d_interaction_pos = QtCore.QPoint()
         self._mesh = mesh
         self._parsed = None
         self._normals = None
@@ -1726,6 +1847,7 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self._frame_locked = False
         self._click_pos = None
         self._dragging_rotation = None
+        self._camera_drag_last_pos = None
         self._render_zoom = self._zoom
         self._render_cache = None
         self._triangles_total = None
@@ -1770,6 +1892,23 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             item._display_pitch = item._current_pitch
         if not item.model_path and data.get('model_path'):
             item.model_path = data['model_path']
+        camera_state = data.get('f3d_camera_state')
+        if isinstance(camera_state, dict):
+            try:
+                item._f3d_camera_state = {
+                    'position': [float(value)
+                                 for value in camera_state['position']],
+                    'focal_point': [float(value)
+                                    for value in camera_state['focal_point']],
+                    'view_up': [float(value)
+                                for value in camera_state['view_up']],
+                    'view_angle': float(camera_state['view_angle']),
+                }
+                if any(len(item._f3d_camera_state[key]) != 3
+                       for key in ('position', 'focal_point', 'view_up')):
+                    item._f3d_camera_state = None
+            except (KeyError, TypeError, ValueError):
+                item._f3d_camera_state = None
         item.setOpacity(data.get('opacity', 1))
         return item
 
@@ -1782,6 +1921,13 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         return None
 
     def model_from_bytes(self, data):
+        if self._renderer is not None:
+            self._renderer.close()
+            self._renderer = None
+        self._f3d_load_attempted = False
+        self._usd_fallback = False
+        self._f3d_camera_state = None
+        self._f3d_controls_active = False
         self.model_bytes = data
         self._mesh = None
         self._frame = None
@@ -1792,17 +1938,55 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         if self._temp_model_file and os.path.isfile(self._temp_model_file):
             return self._temp_model_file
         if self.model_bytes is not None:
+            suffix = os.path.splitext(self.filename or '')[1]
             tmp = tempfile.NamedTemporaryFile(
-                prefix='xref_model_', delete=False)
+                prefix='xref_model_', suffix=suffix, delete=False)
             with tmp:
                 tmp.write(self.model_bytes)
             self._temp_model_file = tmp.name
             return tmp.name
         return None
 
+    def _ensure_f3d_renderer(self):
+        if self._f3d_load_attempted:
+            return self._renderer is not None
+        self._f3d_load_attempted = True
+        path = self._local_model_path()
+        if path is None:
+            self._load_error = 'The model file is not available'
+            self._refresh_tooltip()
+            return False
+        try:
+            self._renderer = model3d.F3DRenderer(
+                path, camera_state=self._f3d_camera_state)
+        except Exception as e:
+            logger.exception(f'Could not load 3D model {self.filename}')
+            self._load_error = str(e)
+            self._refresh_tooltip()
+            return False
+        self._load_error = None
+        self._refresh_tooltip()
+        return True
+
     def _ensure_mesh(self):
         if self._mesh is not None:
+            if (self._usd_fallback and model3d.F3D_ENABLED
+                    and not self._f3d_load_attempted):
+                self._ensure_f3d_mesh_renderer()
             return True
+        if model3d.F3D_ENABLED:
+            extension = os.path.splitext(
+                self.filename or self.model_path or '')[1].lower()
+            if (model3d.USD_CORE_ENABLED
+                    and extension in model3d.USD_EXTENSIONS
+                    and extension not in model3d.F3D_MODEL_EXTENSIONS):
+                return self._ensure_usd_mesh()
+            if self._ensure_f3d_renderer():
+                return True
+            if (model3d.USD_CORE_ENABLED
+                    and extension in model3d.USD_EXTENSIONS):
+                return self._ensure_usd_mesh()
+            return False
         data = self.model_bytes
         if data is None:
             path = self._local_model_path()
@@ -1825,12 +2009,115 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self._apply_decimation()
         return True
 
+    def _ensure_usd_mesh(self):
+        path = self._local_model_path()
+        if path is None:
+            return False
+        try:
+            self._parsed = model3d.parse_model(
+                b'', self.filename or path, path)
+        except (OSError, ValueError, RuntimeError) as error:
+            logger.info('Could not load USD model %s: %s',
+                        self.filename, error)
+            self._load_error = str(error)
+            self._refresh_tooltip()
+            return False
+        self._load_error = None
+        self._refresh_tooltip()
+        self._usd_fallback = True
+        self._apply_decimation()
+        return True
+
     def _model_settings(self):
         settings = getattr(self, 'settings', None)
         if settings is None:
             from xref.config import XRefSettings
             settings = self.settings = XRefSettings()
         return settings
+
+    def _ensure_f3d_mesh_renderer(self):
+        if self._f3d_load_attempted:
+            return self._renderer is not None
+        self._f3d_load_attempted = True
+        try:
+            self._renderer = model3d.F3DRenderer.from_mesh(
+                self._mesh, self._normals,
+                camera_state=self._f3d_camera_state)
+        except Exception as error:
+            self._renderer = None
+            logger.exception(
+                'Could not create F3D renderer for USD model %s',
+                self.filename)
+            self._load_error = str(error)
+            self._refresh_tooltip()
+            return False
+        self._load_error = None
+        self._refresh_tooltip()
+        return True
+
+    def activate_f3d_controls(self):
+        if not model3d.F3D_ENABLED or not self._ensure_mesh():
+            return False
+        if self._renderer is None:
+            return False
+        if self._f3d_camera_state is not None:
+            self._renderer.set_camera_state(self._f3d_camera_state)
+            self._f3d_camera_state = None
+        self._renderer.set_native_interaction(True)
+        self._f3d_controls_active = True
+        self._refresh_tooltip()
+        self.update()
+        return True
+
+    def deactivate_f3d_controls(self):
+        if self._renderer is not None:
+            if self._f3d_interaction_button is not None:
+                self._f3d_camera_state = self._renderer.end_interaction(
+                    self._f3d_interaction_button,
+                    self._f3d_interaction_pos.x(),
+                    self._f3d_interaction_pos.y())
+            self._renderer.set_native_interaction(False)
+            self._f3d_camera_state = self._renderer.camera_state()
+        self._f3d_controls_active = False
+        self._f3d_interaction_button = None
+        self._refresh_tooltip()
+        self.update()
+
+    def begin_f3d_interaction(self, button, pos):
+        if self._renderer is None:
+            return
+        self._f3d_interaction_button = button
+        self._f3d_interaction_pos = QtCore.QPoint(pos)
+        self._renderer.begin_interaction(button, pos.x(), pos.y())
+        self._f3d_camera_revision += 1
+        self.update()
+
+    def update_f3d_interaction(self, pos):
+        if self._renderer is None:
+            return
+        self._f3d_interaction_pos = QtCore.QPoint(pos)
+        self._renderer.update_interaction(pos.x(), pos.y())
+        self._f3d_camera_revision += 1
+        self.update()
+
+    def end_f3d_interaction(self, button, pos):
+        if self._renderer is None:
+            return
+        self._f3d_interaction_pos = QtCore.QPoint(pos)
+        self._f3d_camera_state = self._renderer.end_interaction(
+            button, pos.x(), pos.y())
+        self._f3d_interaction_button = None
+        self._f3d_camera_revision += 1
+        self.update()
+
+    def scroll_f3d_interaction(self, direction, pos):
+        if self._renderer is None:
+            return
+        self._f3d_interaction_pos = QtCore.QPoint(pos)
+        self._f3d_camera_state = self._renderer.scroll_interaction(
+            direction, pos.x(), pos.y())
+        self._f3d_camera_revision += 1
+        self.update()
 
     def _apply_decimation(self):
         """Re-reduces the parsed mesh with the current quality setting."""
@@ -1846,13 +2133,21 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self._mesh = model3d.decimate(parsed, limit)
         self._triangles_total = len(parsed['triangles'])
         self._triangles_shown = len(self._mesh['triangles'])
-        self._normals = model3d.face_normals(self._mesh)
+        self._normals = model3d.vertex_normals(self._mesh)
         self._render_cache = None
+        if model3d.F3D_ENABLED and self._usd_fallback:
+            if self._renderer is not None:
+                self._renderer.close()
+                self._renderer = None
+            self._f3d_load_attempted = False
+            self._ensure_f3d_mesh_renderer()
         self.update()
 
     def reload_mesh(self):
         """Re-applies the quality setting after it changed."""
 
+        if model3d.F3D_ENABLED and self._parsed is None:
+            return
         self._apply_decimation()
 
     # -- View state ----------------------------------------------------------
@@ -1890,6 +2185,13 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
     def release_mesh(self):
         """Frees parsed geometry; the pinned projection is kept."""
 
+        if self._renderer is not None:
+            self._f3d_camera_state = self._renderer.camera_state()
+        if self._renderer is not None:
+            self._renderer.close()
+            self._renderer = None
+        self._f3d_load_attempted = False
+        self._f3d_controls_active = False
         self._mesh = None
         self._normals = None
 
@@ -1906,6 +2208,10 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             item.model_path = self.model_path
         if self._normals is not None:
             item._normals = self._normals
+        item._usd_fallback = self._usd_fallback
+        item._f3d_camera_state = self._f3d_camera_state
+        if item._usd_fallback and model3d.F3D_ENABLED:
+            item._ensure_f3d_mesh_renderer()
         item.setPos(self.pos())
         item.setZValue(self.zValue())
         item.setScale(self.scale())
@@ -1932,6 +2238,7 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             'pitch': round(self._current_pitch, 2),
             'zoom': round(self._zoom, 4),
             'model_path': self.model_path,
+            'f3d_camera_state': self._f3d_camera_state,
         }
 
     def get_filename_for_export(self, fmt, save_id_default=None):
@@ -1959,6 +2266,15 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             self.mapFromScene(scene_pos))
 
     def _refresh_tooltip(self):
+        if self._load_error:
+            self.setToolTip(f'{self.filename or "3D model"}\n'
+                            f'{self._load_error}')
+            return
+        if self._f3d_controls_active:
+            self.setToolTip(
+                tr('F3D controls active; click the model again or press '
+                   'Escape to return to canvas controls'))
+            return
         if self._frame_locked:
             self.setToolTip(tr('Click to rotate the model again'))
         else:
@@ -1985,7 +2301,8 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self._hover_pos = pos
         scene = self.scene()
         dragging = scene is not None and scene.active_mode is not None
-        if (not self._frame_locked and not dragging
+        if (not self._frame_locked and not self._f3d_controls_active
+                and not dragging
                 and self.bounding_rect_unselected().contains(pos)
                 and not self._controls_rect().contains(pos)):
             yaw = (pos.x() / max(1.0, self._width)) * 360
@@ -2008,6 +2325,22 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self.update()
         super().hoverLeaveEvent(event)
 
+    def begin_camera_drag(self, pos):
+        self._camera_drag_last_pos = QtCore.QPointF(pos)
+
+    def update_camera_drag(self, pos):
+        if self._camera_drag_last_pos is None:
+            return
+        pos = QtCore.QPointF(pos)
+        delta = pos - self._camera_drag_last_pos
+        self._camera_drag_last_pos = pos
+        self.set_view(
+            yaw=self._current_yaw + delta.x() * 0.6,
+            pitch=self._current_pitch - delta.y() * 0.6)
+
+    def end_camera_drag(self):
+        self._camera_drag_last_pos = None
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._click_pos = (event.pos(), self.pos())
@@ -2016,7 +2349,9 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
     def mouseReleaseEvent(self, event):
         click = self.was_plain_click(event)
         super().mouseReleaseEvent(event)
-        if (click and self.bounding_rect_unselected().contains(event.pos())):
+        if (click and self.bounding_rect_unselected().contains(event.pos())
+                and not (model3d.F3D_ENABLED
+                         and self._renderer is not None)):
             self.toggle_lock(event.pos())
 
     def wheelEvent(self, event):
@@ -2068,7 +2403,7 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         responsive.
         """
 
-        if self._mesh is None:
+        if self._mesh is None and self._renderer is None:
             return
         cache = self._render_cache
         if cache is not None:
@@ -2085,12 +2420,24 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
                 interval = self.PREVIEW_INTERVAL_MS
             if (hovering
                     and interval > 0
-                    and self._triangles_shown
-                    and self._triangles_shown > 20000
+                    and (self._renderer is not None
+                         or (self._triangles_shown
+                             and self._triangles_shown > 20000))
                     and current - self._last_preview_ms < interval):
                 # Too soon for a new preview of a heavy mesh
                 return
-            image = self._render_projection(rect)
+            try:
+                image = self._render_projection(rect)
+            except Exception as e:
+                if self._renderer is None:
+                    raise
+                logger.exception(f'Could not render 3D model {self.filename}')
+                self._renderer.close()
+                self._renderer = None
+                self._f3d_load_attempted = True
+                self._load_error = str(e)
+                self._refresh_tooltip()
+                return
             self._render_cache = (self._render_key(), image)
             if hovering:
                 self._last_preview_ms = current
@@ -2099,14 +2446,33 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
     def _render_key(self):
         return (round(self._display_yaw, 1), round(self._display_pitch, 1),
                 round(self._render_zoom, 3),
-                int(self._width), int(self._height))
+                int(self._width), int(self._height),
+                self._f3d_camera_revision)
 
     def _render_projection(self, rect):
         """Renders the mesh into an image of the item's size."""
 
         width, height = max(2, int(self._width)), max(2, int(self._height))
+        if self._renderer is not None:
+            rendered = self._renderer.render(
+                width, height,
+                self._display_yaw, self._display_pitch, self._render_zoom)
+            channels = rendered.channel_count
+            formats = {
+                3: QtGui.QImage.Format.Format_RGB888,
+                4: QtGui.QImage.Format.Format_RGBA8888,
+            }
+            image_format = formats.get(channels)
+            if (rendered.channel_type != model3d.f3d.Image.BYTE
+                    or image_format is None):
+                raise ValueError(
+                    'F3D returned an unsupported image pixel format')
+            return QtGui.QImage(
+                rendered.content, width, height, width * channels,
+                image_format).copy()
+
         image = QtGui.QImage(width, height, QtGui.QImage.Format.Format_RGB32)
-        image.fill(QtGui.QColor(30, 30, 34))
+        image.fill(QtGui.QColor(0, 0, 0))
         painter = QtGui.QPainter(image)
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         self._draw_mesh(painter, QtCore.QRectF(0, 0, width, height))
@@ -2164,15 +2530,21 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             key=lambda t: depth_of[triangles[t][0]]
             + depth_of[triangles[t][1]] + depth_of[triangles[t][2]])
 
-        # Precompute rotated normal z for shading
-        bands = 12
-        band_of = []
+        # Smooth shared-vertex normals reduce the faceted look of USD meshes.
+        bands = 64
+        rotated_normals = []
         rcp, rsp = cos_p, sin_p
         normals = self._normals
         for nx, ny, nz in normals:
             rny = nx * sin_y + ny * cos_y
-            rnz2 = rny * rsp + nz * rcp
-            light = 0.55 + 0.45 * rnz2
+            rnz = rny * rsp + nz * rcp
+            rotated_normals.append(rnz)
+
+        band_of = []
+        for a, b, c in triangles:
+            normal_z = (rotated_normals[a] + rotated_normals[b]
+                        + rotated_normals[c]) / 3
+            light = 0.55 + 0.45 * normal_z
             if light < 0.0:
                 light = 0.0
             elif light > 1.0:
@@ -2188,7 +2560,7 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             path.lineTo(*projected[c])
             path.closeSubpath()
 
-        base = (120, 150, 200)
+        base = (190, 190, 190)
         painter.setPen(Qt.PenStyle.NoPen)
         for band, path in enumerate(paths):
             light = band / float(bands - 1)

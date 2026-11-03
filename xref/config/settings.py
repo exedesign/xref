@@ -22,6 +22,7 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 
 from xref import constants
 from xref import i18n
+from xref import model3d
 
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,11 @@ class XRefSettings(QtCore.QSettings):
             'default': 'best',
             'validate': lambda x: x in ('png', 'jpg', 'webp', 'best'),
         },
+        'Items/image_preview_max_dimension': {
+            'default': 4096,
+            'cast': int,
+            'validate': lambda x: 256 <= x <= 16384,
+        },
         'Items/arrange_gap': {
             'default': 0,
             'cast': int,
@@ -193,7 +199,7 @@ class XRefSettings(QtCore.QSettings):
             'post_save_callback': _repaint_all_views,
         },
         'Items/model_max_triangles': {
-            'default': 25000,
+            'default': (500000 if model3d.F3D_ENABLED else 25000),
             'cast': int,
             'validate': lambda x: 1000 <= x <= 500000,
             'post_save_callback': _reload_model_meshes,
@@ -212,12 +218,6 @@ class XRefSettings(QtCore.QSettings):
             'default': False,
             'cast': bool,
         },
-        'Items/image_allocation_limit': {
-            'default': 256,
-            'cast': int,
-            'validate': lambda x: x >= 0,
-            'post_save_callback': QtGui.QImageReader.setAllocationLimit,
-        },
         'View/show_titlebar': {
             'default': False,
             'cast': bool,
@@ -225,11 +225,6 @@ class XRefSettings(QtCore.QSettings):
         'View/always_on_top': {
             'default': False,
             'cast': bool,
-        },
-        'View/window_move_margin': {
-            'default': 10,
-            'cast': int,
-            'validate': lambda x: 0 <= x <= 60,
         },
         'View/window_buttons_delay': {
             'default': 3,
@@ -276,11 +271,9 @@ class XRefSettings(QtCore.QSettings):
     def on_startup(self):
         """Settings to be applied on application startup."""
 
-        if os.environ.get('QT_IMAGEIO_MAXALLOC'):
-            alloc = int(os.environ['QT_IMAGEIO_MAXALLOC'])
-        else:
-            alloc = self.valueOrDefault('Items/image_allocation_limit')
-        QtGui.QImageReader.setAllocationLimit(alloc)
+        self.remove('Items/image_allocation_limit')
+        os.environ.pop('QT_IMAGEIO_MAXALLOC', None)
+        QtGui.QImageReader.setAllocationLimit(0)
         stored_language = self.value('General/language')
         if stored_language is None:
             # First start: follow the system language

@@ -26,11 +26,13 @@ Sade arayüzü, yaratıcı sürecinizin önüne geçmemek için tasarlandı.
 ------------
 
 * Referans medya: görseller (PNG, JPG, WebP, GIF, ...), videolar (MP4, MOV,
-  WebM, ...), çok sayfalı PDF'ler ve 3D modeller (OBJ, STL, PLY, GLB, glTF,
-  USDZ ve binary FBX)
+  WebM, ...), çok sayfalı PDF'ler ve 3D modeller. Windows'ta F3D; OBJ, STL,
+  PLY, FBX, glTF/GLB, 3MF, STEP, IFC ve kurulu okuyucuların sunduğu diğer
+  biçimleri GPU hızlandırmalı olarak işler
 * Çerçevesiz, PureRef benzeri pencere: boş tuvale çift tıklayarak tam ekran,
-  her zaman üstte modu, kenarlardan boyutlandırma ve her kenarda 10 px'lik
-  taşıma bandı; küçült/tam ekran/kapat düğmeleri kısa bir gecikmeyle sağ
+  pencereyi taşımak için sağ tıklayıp sürükleme, her zaman üstte modu ve
+  kenarlardan boyutlandırma; küçült/tam ekran/kapat düğmeleri kısa bir
+  gecikmeyle sağ
   üstte belirir. Her sahne kendi pencere konumunu ve boyutunu tahta dosyası
   içinde hatırlar (Ayarlar -> Görünüm -> Sahne Yerleşimlerini Hatırla)
 * Sonsuz tuval: kaydırma, yakınlaştırma, döndürme, çevirme, kırpma,
@@ -41,10 +43,11 @@ Sade arayüzü, yaratıcı sürecinizin önüne geçmemek için tasarlandı.
 * PDF'ler video gibi çalışır: sayfaların arasında gezinmek için üzerine
   gelin, son gösterilen sayfa hatırlanır ve tahta yeniden açıldığında
   geri yüklenir
-* 3D modeller yazılımla işlenir (3D motoru gerekmez): modelin üzerinde
-  fareyi gezdirerek döndürün, görüntüyü sabitlemek için tıklayın,
-  yakınlaştırmak için tekerleği kullanın; ağır modeller otomatik
-  basitleştirilir, kalite ayarlanabilir (Ayarlar -> 3D Görüntüleyici)
+* 3D modeller: modelin üzerinde fareyi gezdirerek döndürün, görüntüyü
+  sabitlemek için tıklayın, yakınlaştırmak için tekerleği kullanın.
+  Windows'ta F3D/libf3d ile GPU hızlandırmalı rendering; F3D okuyucusu
+  bulunmayan USD/USDZ dosyalarının geometrisi OpenUSD ile okunup F3D
+  üzerinden GPU hızlandırmalı görüntülenir
 * Medya başlıkları: görsel, video, PDF ve modeller dosya adlarını tuvalde
   gösterebilir (Ayarlar -> Çeşitli -> Medya Başlıklarını Göster)
 * Ögeler arası düğüm bağlantıları: bir ögeden diğerine **Shift+sürükle**
@@ -82,7 +85,8 @@ Kurulum (Python)
 ----------------
 
 XRef Windows, Linux ve macOS üzerinde çalışır; Python 3.9 - 3.12 ve PyQt6
-gerekir.
+gerekir. Windows'ta F3D 3D görüntüleyici için Python 3.10+ ve 64-bit
+Python gerekir.
 
 .. code-block:: console
 
@@ -100,11 +104,12 @@ Features
 --------
 
 * Reference images (PNG, JPG, WebP, GIF, ...), videos (MP4, MOV, WebM, ...),
-  multi-page PDFs and 3D models (OBJ, STL, PLY, GLB, glTF, USDZ and binary
-  FBX)
+  multi-page PDFs and 3D models. On Windows, F3D supports GPU-accelerated
+  rendering for OBJ, STL, PLY, FBX, glTF/GLB, 3MF, STEP, IFC and other formats
+  provided by the installed readers
 * Frameless, PureRef-like window: double click the empty canvas for full
-  screen, an always-on-top mode, resizable edges and a 10 px move band along
-  every edge; minimize/full screen/close buttons appear in the top right
+  screen, right-click and drag anywhere to move the window, always-on-top,
+  and resizable edges; minimize/full screen/close buttons appear in the top right
   corner after a short delay. Each scene can remember its own window
   position and size, stored inside the board file
   (Settings -> View -> Remember Scene Layouts)
@@ -116,10 +121,10 @@ Features
 * PDFs behave like videos: hover to flip through the pages, the last shown page
   is remembered and restored when the board is opened again; a single click
   locks the page
-* 3D models are rendered in software (no 3D engine needed): rotate by moving
-  the mouse over the model, click to pin the view, wheel to zoom; heavy
-  models are reduced automatically and the quality is adjustable
-  (Settings -> 3D Viewer)
+* 3D models: rotate by moving the mouse over the model, click to pin the view,
+  wheel to zoom. On Windows, models are rendered with GPU acceleration by
+  F3D/libf3d; for USD/USDZ formats unavailable in the F3D readers, OpenUSD
+  reads the geometry and F3D renders it on the GPU
 * Media titles: images, videos, PDFs and models can show their file name on
   the canvas (Settings -> Miscellaneous -> Show Media Titles)
 * Node-editor style links between items: **Shift+drag** from one item to
@@ -151,10 +156,13 @@ Installation
 
 **Windows**: download the standalone ``XRef-<version>-windows-x86_64.exe``
 from the `Releases <https://github.com/exedesign/xref/releases>`_ page and
-run it - no installation required.
+run it - no installation required. On first launch, the packaged app
+registers ``.xref`` and legacy ``.bee`` boards as XRef file types for the
+current Windows user. Windows may ask you to select XRef under
+**Settings -> Apps -> Default apps** to make it the default opener.
 
 XRef also runs on Windows, Linux and macOS and needs Python 3.9 - 3.12 with
-PyQt6.
+PyQt6. The F3D 3D viewer on Windows requires 64-bit Python 3.10 or later.
 
 .. code-block:: console
 

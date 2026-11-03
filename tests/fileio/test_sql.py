@@ -9,6 +9,7 @@ import pytest
 
 from xref.fileio import schema, is_bee_file
 from xref.fileio.errors import XRefFileIOError
+from xref.fileio.image import preview_from_bytes
 from xref.fileio.sql import SQLiteIO
 from xref.items import XRefPixmapItem, XRefTextItem, XRefErrorItem
 
@@ -262,10 +263,28 @@ def test_sqliteio_write_inserts_new_pixmap_item_png(tmpfile, view):
         'crop': [5, 5, 100, 80],
         'opacity': 0.66,
         'grayscale': True,
+        'before_after_pair_id': None,
+        'before_after_role': None,
     }
     assert result[7] == 'pixmap'
     assert result[8] == b'abc'
     assert result[9] == '0001-bee.png'
+
+
+def test_sqliteio_preserves_original_image_bytes(
+        tmpfile, view, imgdata3x3):
+    preview = preview_from_bytes(imgdata3x3, 2)
+    item = XRefPixmapItem(
+        preview.image, 'test.png',
+        source_image_bytes=preview.source_bytes,
+        source_image_size=preview.source_size,
+        source_image_format=preview.source_format)
+    view.scene.addItem(item)
+    io = SQLiteIO(tmpfile, view.scene, create_new=True)
+
+    io.write()
+
+    assert io.fetchone('SELECT data FROM sqlar') == (imgdata3x3,)
 
 
 def test_sqliteio_write_inserts_new_pixmap_item_jpg(tmpfile, view):
@@ -379,6 +398,8 @@ def test_sqliteio_write_updates_existing_pixmap_item(tmpfile, view):
         'crop': [1, 2, 30, 40],
         'opacity': 0.75,
         'grayscale': True,
+        'before_after_pair_id': None,
+        'before_after_role': None,
     }
     assert result[7] == b'abc'
 
@@ -425,6 +446,8 @@ def test_sqliteio_write_keeps_pixmap_item_of_error_item(tmpfile, view):
         'crop': [5, 5, 80, 100],
         'opacity': 0.2,
         'grayscale': False,
+        'before_after_pair_id': None,
+        'before_after_role': None,
     }
     assert result[7] == b'abc'
 

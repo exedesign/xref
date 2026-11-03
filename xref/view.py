@@ -15,14 +15,16 @@
 
 from functools import partial
 import logging
+import math
 import os
 import os.path
+import uuid
 
 from PyQt6 import QtCore, QtGui, QtWidgets, sip
 from PyQt6.QtCore import Qt
 
 from xref.actions import ActionsMixin, actions
-from xref import collab, i18n
+from xref import collab, i18n, model3d
 from xref.assets import XRefAssets
 from xref import commands
 from xref.config import CommandlineArgs, XRefSettings, KeyboardSettings
@@ -32,7 +34,7 @@ from xref.fileio.errors import IMG_LOADING_ERROR_MSG
 from xref.fileio.export import exporter_registry, ImagesToDirectoryExporter
 from xref.i18n import tr
 from xref import widgets
-from xref.items import XRefPixmapItem, XRefTextItem
+from xref.items import XRefModelItem, XRefPixmapItem, XRefTextItem
 from xref.main_controls import MainControlsMixin
 from xref.scene import XRefGraphicsScene
 from xref.utils import get_file_extension_from_format, qcolor_to_hex
@@ -92,24 +94,6 @@ class AltDoubleTapFilter(QtCore.QObject):
         return False
 
 
-class MenuBarDragFilter(QtCore.QObject):
-    """Drags the window by the empty part of the menu bar.
-
-    Frameless windows have no title bar, so the menu bar doubles as one.
-    """
-
-    def __init__(self, view):
-        super().__init__(view)
-        self.view = view
-
-    def eventFilter(self, obj, event):
-        if (event.type() == QtCore.QEvent.Type.MouseButtonPress
-                and event.button() == Qt.MouseButton.LeftButton
-                and obj.actionAt(event.pos()) is None):
-            return self.view.start_window_move()
-        return False
-
-
 class XRefGraphicsView(MainControlsMixin,
                       QtWidgets.QGraphicsView,
                       ActionsMixin):
@@ -117,6 +101,7 @@ class XRefGraphicsView(MainControlsMixin,
     PAN_MODE = 1
     ZOOM_MODE = 2
     SAMPLE_COLOR_MODE = 3
+    MODEL_CAMERA_MODE = 4
 
     def __init__(self, app, parent=None):
         super().__init__(parent)
@@ -147,7 +132,15 @@ class XRefGraphicsView(MainControlsMixin,
         self.filename = None
         self.previous_transform = None
         self.active_mode = None
+        self._model_camera_item = None
+        self._model_camera_button = None
         self._native_resize_active = False
+        self._right_window_drag_start = None
+        self._right_window_drag_origin = None
+        self._right_window_drag_moved = False
+        self._suppress_drag_context_menu_at = None
+        self._before_after_active = False
+        self._before_after_item = None
 
         self.scene = XRefGraphicsScene(self.undo_stack)
         self.scene.changed.connect(self.on_scene_changed)
@@ -212,6 +205,10 @@ class XRefGraphicsView(MainControlsMixin,
     def cancel_active_modes(self):
         self.scene.cancel_active_modes()
         self.cancel_sample_color_mode()
+        if self._model_camera_item is not None:
+            self._model_camera_item.deactivate_f3d_controls()
+            self._model_camera_item = None
+        self._model_camera_button = None
         self.active_mode = None
 
     def cancel_sample_color_mode(self):
@@ -401,6 +398,17 @@ class XRefGraphicsView(MainControlsMixin,
         # platforms; the action state still follows the user's intent
         self.schedule_recentre(centre)
 
+    def on_action_maximize(self):
+        centre = self.view_centre_scene()
+        if self.parent.isMaximized():
+            self.parent.showNormal()
+        else:
+            self.parent.showMaximized()
+        self.schedule_recentre(centre)
+
+    def on_action_minimize(self):
+        self.parent.showMinimized()
+
     def view_centre_scene(self):
         """The scene point in the middle of the viewport."""
 
@@ -489,13 +497,6 @@ class XRefGraphicsView(MainControlsMixin,
         self.apply_window_flags(on_top=checked)
 
     RESIZE_EDGE_MARGIN = 6
-    DEFAULT_MOVE_MARGIN = 10
-
-    def start_window_move(self):
-        """Starts a native window drag (used for frameless windows)."""
-
-        handle = self.parent.windowHandle()
-        return handle is not None and handle.startSystemMove()
 
     def start_window_resize(self, edges):
         """Starts a native window resize from the given edges."""
@@ -509,40 +510,13 @@ class XRefGraphicsView(MainControlsMixin,
         finally:
             self._native_resize_active = False
 
-    def make_menubar_dragable(self, menu_bar):
-        """Lets the empty part of the menu bar move the window."""
-
-        if menu_bar is None:
-            return
-        filt = getattr(self, '_menubar_drag_filter', None)
-        if filt is None:
-            filt = MenuBarDragFilter(self)
-            self._menubar_drag_filter = filt
-        menu_bar.installEventFilter(filt)
-
-    def window_move_margin(self):
-        """How many pixels inside the edge drag the window along."""
-
-        return max(0, int(self.settings.valueOrDefault(
-            'View/window_move_margin')))
-
-    def window_edge_hit(self, pos):
-        """What a left press at this viewport position does to the window.
-
-        Frameless windows have neither a title bar nor an OS border, so the
-        outermost pixels resize the window and the band right inside of it
-        moves the window - on every edge and corner.
-
-        :return: ``('resize', edges)``, ``('move', None)`` or ``None``
-        """
-
-        if not self.is_frameless():
+    def resize_edges_at(self, pos):
+        """The resizable outer edge under a viewport position, if any."""
+        if (not self.is_frameless()
+                or not isinstance(pos, QtCore.QPoint)):
             return None
-        try:
-            x = float(pos.x())
-            y = float(pos.y())
-        except (TypeError, ValueError):
-            return None
+        x = float(pos.x())
+        y = float(pos.y())
         rect = self.rect()
         width, height = rect.width(), rect.height()
         if not (0 <= x <= width and 0 <= y <= height):
@@ -556,38 +530,15 @@ class XRefGraphicsView(MainControlsMixin,
             return None
         Edge = Qt.Edge
         margin = self.RESIZE_EDGE_MARGIN
-        band = margin + self.window_move_margin()
-        left = x <= band
-        right = x >= width - band
-        top = y <= band
-        bottom = y >= height - band
         horizontal = (Edge.LeftEdge if x <= margin
                       else Edge.RightEdge if x >= width - margin else None)
         vertical = (Edge.TopEdge if y <= margin
                     else Edge.BottomEdge if y >= height - margin else None)
-        if (left or right) and (top or bottom):
-            # Corners resize diagonally, like the border of a normal window
-            corner = ((Edge.LeftEdge if left else Edge.RightEdge)
-                      | (Edge.TopEdge if top else Edge.BottomEdge))
-            return 'resize', corner
         if horizontal is not None:
-            return 'resize', horizontal
+            return horizontal | vertical if vertical is not None else horizontal
         if vertical is not None:
-            return 'resize', vertical
-        if left or right or top or bottom:
-            return 'move', None
+            return vertical
         return None
-
-    def resize_edges_at(self, pos):
-        """The window edges under a viewport position.
-
-        :rtype: Qt.Edge or None
-        """
-
-        hit = self.window_edge_hit(pos)
-        if hit is None or hit[0] != 'resize':
-            return None
-        return hit[1]
 
     def resize_cursor(self, edges):
         """The mouse cursor for the given window edges."""
@@ -626,17 +577,14 @@ class XRefGraphicsView(MainControlsMixin,
                 widget._window_edge_cursor_active = False
                 widget.unsetCursor()
             return
-        hit = self.window_edge_hit(pos)
-        if hit is None:
+        edges = self.resize_edges_at(pos)
+        if edges is None:
             if getattr(widget, '_window_edge_cursor_active', False):
                 widget._window_edge_cursor_active = False
                 widget.unsetCursor()
             return
         widget._window_edge_cursor_active = True
-        if hit[0] == 'move':
-            widget.setCursor(QtGui.QCursor(Qt.CursorShape.SizeAllCursor))
-        else:
-            widget.setCursor(self.resize_cursor(hit[1]))
+        widget.setCursor(self.resize_cursor(edges))
 
     def on_action_show_scrollbars(self, checked):
         if checked:
@@ -654,7 +602,6 @@ class XRefGraphicsView(MainControlsMixin,
         if checked:
             menu_bar = self.create_menubar()
             self.parent.setMenuBar(menu_bar)
-            self.make_menubar_dragable(menu_bar)
         else:
             self.parent.setMenuBar(None)
 
@@ -1924,20 +1871,96 @@ class XRefGraphicsView(MainControlsMixin,
         if sip.isdeleted(self.scene) or sip.isdeleted(self):
             # Emitted while the scene is being destroyed (app shutdown)
             return
+        selected = self.scene.selectedItems(user_only=True)
         logger.debug('Currently selected items: %s',
-                     len(self.scene.selectedItems(user_only=True)))
+                     len(selected))
         self.actiongroup_set_enabled(
             'active_when_selection',
             self.scene.has_selection()
             or self.scene.selected_link is not None)
         self.actiongroup_set_enabled('active_when_single_image',
                                      self.scene.has_single_image_selection())
+        self.actiongroup_set_enabled(
+            'active_when_two_images',
+            len(selected) == 2
+            and all(isinstance(item, XRefPixmapItem)
+                    for item in selected))
 
         if self.scene.has_selection():
-            item = self.scene.selectedItems(user_only=True)[0]
+            item = selected[0]
             grayscale = getattr(item, 'grayscale', False)
             actions.actions['grayscale'].qaction.setChecked(grayscale)
         self.viewport().repaint()
+
+    def on_action_match_before_after(self):
+        selected = self.scene.selectedItems(user_only=True)
+        if (len(selected) != 2
+                or not all(isinstance(item, XRefPixmapItem)
+                           for item in selected)):
+            return
+
+        scene_order = self.scene.items()
+        after_item = next(item for item in scene_order if item in selected)
+        before_item = next(item for item in selected if item is not after_item)
+        before_rect = self.scene.itemsBoundingRect(items=[before_item])
+        after_rect = self.scene.itemsBoundingRect(items=[after_item])
+        if (before_rect.width() <= 0 or before_rect.height() <= 0
+                or after_rect.width() <= 0 or after_rect.height() <= 0):
+            widgets.XRefNotification(self, tr(
+                'Cannot match images with empty dimensions'))
+            return
+
+        before_ratio = before_rect.width() / before_rect.height()
+        after_ratio = after_rect.width() / after_rect.height()
+        if not math.isclose(before_ratio, after_ratio, rel_tol=1e-6):
+            widgets.XRefNotification(self, tr(
+                'Cannot match images with different aspect ratios'))
+            return
+
+        self.cancel_active_modes()
+        scale_factors = (after_rect.width() / before_rect.width(), 1)
+        self.undo_stack.push(commands.MatchBeforeAfter(
+            self.scene, before_item, after_item, scale_factors,
+            after_rect.center(), uuid.uuid4().hex))
+
+    def set_before_after_active(self, active):
+        self._before_after_active = active
+        if active:
+            self.update_before_after_cursor(
+                QtGui.QCursor.pos())
+        else:
+            self.update_before_after_cursor(None)
+
+    def update_before_after_cursor(self, global_pos):
+        previous = self._before_after_item
+        if previous is not None and not sip.isdeleted(previous):
+            previous._before_after_reveal_x = None
+            previous.update()
+        self._before_after_item = None
+
+        if not self._before_after_active or global_pos is None:
+            return
+
+        viewport_pos = self.viewport().mapFromGlobal(global_pos)
+        if not self.viewport().rect().contains(viewport_pos):
+            return
+
+        scene_pos = self.mapToScene(viewport_pos)
+        scene_items = self.scene.items(scene_pos)
+        image_index = next(
+            (index for index, item in enumerate(scene_items)
+             if isinstance(item, XRefPixmapItem)),
+            None)
+        if image_index is None:
+            return
+        top_item = scene_items[image_index]
+        if not any(isinstance(item, XRefPixmapItem)
+                   for item in scene_items[image_index + 1:]):
+            return
+
+        top_item._before_after_reveal_x = scene_pos.x()
+        top_item.update()
+        self._before_after_item = top_item
 
     def on_cursor_changed(self, cursor):
         if self.active_mode is None and not self.scene.draw_mode:
@@ -2061,6 +2084,23 @@ class XRefGraphicsView(MainControlsMixin,
         self.reset_previous_transform()
 
     def wheelEvent(self, event):
+        if (model3d.F3D_ENABLED
+                and self._model_camera_item is not None):
+            pos = event.position().toPoint()
+            if self.model_item_at(pos) is self._model_camera_item:
+                delta = event.angleDelta().y()
+                if delta:
+                    direction = 'forward' if delta > 0 else 'backward'
+                    steps = max(1, abs(delta) // 120)
+                    for _ in range(steps):
+                        self._model_camera_item.scroll_f3d_interaction(
+                            direction, self.model_item_position(
+                                self._model_camera_item, pos))
+                event.accept()
+                return
+            self._model_camera_item.deactivate_f3d_controls()
+            self._model_camera_item = None
+
         action, inverted\
             = self.keyboard_settings.mousewheel_action_for_event(event)
 
@@ -2081,25 +2121,137 @@ class XRefGraphicsView(MainControlsMixin,
             event.accept()
             return
 
-    def handle_window_edge_press(self, event):
-        """Starts a native window move or resize for a frameless window.
+    def model_item_at(self, pos):
+        if isinstance(pos, QtCore.QPointF):
+            pos = pos.toPoint()
+        if not isinstance(pos, QtCore.QPoint):
+            return None
+        scene_pos = self.mapToScene(pos)
+        return next(
+            (item for item in self.scene.items(scene_pos)
+             if isinstance(item, XRefModelItem)),
+            None)
+
+    def model_item_position(self, item, viewport_pos):
+        if not isinstance(viewport_pos, QtCore.QPoint):
+            viewport_pos = QtCore.QPoint(viewport_pos)
+        local_pos = item.mapFromScene(self.mapToScene(viewport_pos))
+        rect = item.bounding_rect_unselected()
+        width, height = max(1, int(rect.width())), max(1, int(rect.height()))
+        x = round(local_pos.x() * width / max(1.0, rect.width()))
+        y = round(local_pos.y() * height / max(1.0, rect.height()))
+        return QtCore.QPoint(
+            max(0, min(width - 1, x)),
+            max(0, min(height - 1, y)))
+
+    def handle_window_resize_press(self, event):
+        """Starts a native resize from the outer edge of a frameless window.
 
         Used by the view and by the welcome overlay, so the window can be
-        moved and resized even while the board is empty.
+        resized even while the board is empty.
         """
 
-        hit = self.window_edge_hit(event.pos())
-        if hit is None or event.button() != Qt.MouseButton.LeftButton:
+        if event.button() != Qt.MouseButton.LeftButton:
             return False
-        if hit[0] == 'resize':
-            return self.start_window_resize(hit[1])
-        return self.start_window_move()
+        edges = self.resize_edges_at(event.pos())
+        if edges is None:
+            return False
+        return self.start_window_resize(edges)
+
+    def begin_right_window_drag(self, event):
+        self._right_window_drag_start = event.globalPosition().toPoint()
+        self._right_window_drag_origin = self.parent.pos()
+        self._right_window_drag_moved = False
+        self._suppress_drag_context_menu_at = None
+        event.accept()
+
+    def continue_right_window_drag(self, event):
+        if self._right_window_drag_start is None:
+            return False
+        if not (event.buttons() & Qt.MouseButton.RightButton):
+            return False
+
+        current = event.globalPosition().toPoint()
+        delta = current - self._right_window_drag_start
+        if (not self._right_window_drag_moved
+                and delta.manhattanLength()
+                < QtWidgets.QApplication.startDragDistance()):
+            event.accept()
+            return True
+
+        self._right_window_drag_moved = True
+        self.parent.move(self._right_window_drag_origin + delta)
+        event.accept()
+        return True
+
+    def end_right_window_drag(self, event):
+        if self._right_window_drag_start is None:
+            return False
+        current = event.globalPosition().toPoint()
+        delta = current - self._right_window_drag_start
+        if (not self._right_window_drag_moved
+                and delta.manhattanLength()
+                >= QtWidgets.QApplication.startDragDistance()):
+            self._right_window_drag_moved = True
+            self.parent.move(self._right_window_drag_origin + delta)
+        moved = self._right_window_drag_moved
+        if moved:
+            self._suppress_drag_context_menu_at = current
+        self._right_window_drag_start = None
+        self._right_window_drag_origin = None
+        self._right_window_drag_moved = False
+        if not moved:
+            self.on_context_menu(
+                self.mapFromGlobal(event.globalPosition().toPoint()))
+        event.accept()
+        return True
 
     def mousePressEvent(self, event):
-        if self.mousePressEventMainControls(event):
-            return
-        if self.handle_window_edge_press(event):
+        if (model3d.F3D_ENABLED
+                and self._model_camera_item is not None):
+            item = self.model_item_at(event.pos())
+            if item is not self._model_camera_item:
+                self._model_camera_item.deactivate_f3d_controls()
+                self._model_camera_item = None
+                self.active_mode = None
+            elif event.button() in (
+                    Qt.MouseButton.LeftButton,
+                    Qt.MouseButton.MiddleButton,
+                    Qt.MouseButton.RightButton):
+                button = {
+                    Qt.MouseButton.LeftButton: 'left',
+                    Qt.MouseButton.MiddleButton: 'middle',
+                    Qt.MouseButton.RightButton: 'right',
+                }[event.button()]
+                self._model_camera_item.begin_f3d_interaction(
+                    button, self.model_item_position(
+                        self._model_camera_item, event.pos()))
+                self._model_camera_button = event.button()
+                self.active_mode = self.MODEL_CAMERA_MODE
+                event.accept()
+                return
+
+        model_item = self.model_item_at(event.pos())
+        if (model_item is not None
+                and event.button() == Qt.MouseButton.LeftButton
+                and model_item.activate_f3d_controls()):
+            if self._model_camera_item is not None:
+                self._model_camera_item.deactivate_f3d_controls()
+            self._model_camera_item = model_item
+            self.scene.clearSelection()
+            model_item.setSelected(True)
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
+            model_item.begin_f3d_interaction(
+                'left', self.model_item_position(model_item, event.pos()))
+            self._model_camera_button = event.button()
+            self.active_mode = self.MODEL_CAMERA_MODE
             event.accept()
+            return
+
+        if event.button() == Qt.MouseButton.RightButton:
+            self.begin_right_window_drag(event)
+            return
+        if self.mousePressEventMainControls(event):
             return
         if self.active_mode == self.SAMPLE_COLOR_MODE:
             if (event.button() == Qt.MouseButton.LeftButton):
@@ -2119,6 +2271,30 @@ class XRefGraphicsView(MainControlsMixin,
             self.cancel_sample_color_mode()
             event.accept()
             return
+
+        if self.handle_window_resize_press(event):
+            event.accept()
+            return
+
+        if event.button() == Qt.MouseButton.MiddleButton:
+            pos = event.pos()
+            if isinstance(pos, QtCore.QPoint):
+                scene_pos = self.mapToScene(pos)
+                model_item = next(
+                    (item for item in self.scene.items(scene_pos)
+                     if isinstance(item, XRefModelItem)),
+                    None)
+            else:
+                model_item = None
+            if (model_item is not None
+                    and (not model3d.F3D_ENABLED
+                         or model_item._renderer is None)):
+                self._model_camera_item = model_item
+                self._model_camera_item.begin_camera_drag(event.position())
+                self._model_camera_button = event.button()
+                self.active_mode = self.MODEL_CAMERA_MODE
+                event.accept()
+                return
 
         action, inverted = self.keyboard_settings.mouse_action_for_event(event)
 
@@ -2145,6 +2321,20 @@ class XRefGraphicsView(MainControlsMixin,
         self._prepare_drag_export(event)
 
     def mouseMoveEvent(self, event):
+        if self.continue_right_window_drag(event):
+            return
+        if (self.active_mode == self.MODEL_CAMERA_MODE
+                and self._model_camera_item is not None):
+            if (model3d.F3D_ENABLED
+                    and self._model_camera_item._renderer is not None):
+                self._model_camera_item.update_f3d_interaction(
+                    self.model_item_position(
+                        self._model_camera_item, event.pos()))
+            else:
+                self._model_camera_item.update_camera_drag(
+                    event.position())
+            event.accept()
+            return
         if self._maybe_start_export_drag(event):
             return
 
@@ -2194,6 +2384,41 @@ class XRefGraphicsView(MainControlsMixin,
         super().mouseDoubleClickEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if (event.button() == Qt.MouseButton.RightButton
+                and self.end_right_window_drag(event)):
+            return
+        if (event.button() == Qt.MouseButton.MiddleButton
+                and self._model_camera_button
+                == Qt.MouseButton.MiddleButton
+                and self.active_mode == self.MODEL_CAMERA_MODE):
+            if (model3d.F3D_ENABLED
+                    and self._model_camera_item._renderer is not None):
+                self._model_camera_item.end_f3d_interaction(
+                    'middle', self.model_item_position(
+                        self._model_camera_item, event.pos()))
+            else:
+                self._model_camera_item.end_camera_drag()
+                self._model_camera_item = None
+            self._model_camera_button = None
+            self.active_mode = None
+            event.accept()
+            return
+        if (self.active_mode == self.MODEL_CAMERA_MODE
+                and self._model_camera_item is not None
+                and event.button() == self._model_camera_button):
+            button = {
+                Qt.MouseButton.LeftButton: 'left',
+                Qt.MouseButton.MiddleButton: 'middle',
+                Qt.MouseButton.RightButton: 'right',
+            }[event.button()]
+            if model3d.F3D_ENABLED:
+                self._model_camera_item.end_f3d_interaction(
+                    button, self.model_item_position(
+                        self._model_camera_item, event.pos()))
+            self._model_camera_button = None
+            self.active_mode = None
+            event.accept()
+            return
         self._drag_export_items = []
         self._drag_export_positions = []
         self._drag_export_start = None
@@ -2279,6 +2504,14 @@ class XRefGraphicsView(MainControlsMixin,
         self.welcome_overlay.resize(self.size())
 
     def keyPressEvent(self, event):
+        if (event.key() == Qt.Key.Key_Escape
+                and self._model_camera_item is not None):
+            self._model_camera_item.deactivate_f3d_controls()
+            self._model_camera_item = None
+            self._model_camera_button = None
+            self.active_mode = None
+            event.accept()
+            return
         if self.keyPressEventMainControls(event):
             return
         if self.active_mode == self.SAMPLE_COLOR_MODE:
@@ -2301,4 +2534,3 @@ class XRefGraphicsView(MainControlsMixin,
             event.accept()
             return
         super().keyPressEvent(event)
-

@@ -9,7 +9,12 @@ import plum
 
 from PyQt6 import QtCore, QtGui
 
-from xref.fileio.image import exif_rotated_image, load_image
+from xref.fileio.image import (
+    exif_rotated_image,
+    load_image,
+    load_image_preview,
+    preview_from_bytes,
+)
 
 
 def test_exif_rotated_image_without_path(qapp):
@@ -83,6 +88,32 @@ def test_load_image_loads_from_existing_local_url(view, imgfilename3x3):
     img, filename = load_image(url)
     assert img.isNull() is False
     assert filename == imgfilename3x3
+
+
+def test_load_image_preview_scales_but_preserves_original(
+        view, imgfilename3x3):
+    preview, filename = load_image_preview(imgfilename3x3, 2)
+    with open(imgfilename3x3, 'rb') as image_file:
+        source_bytes = image_file.read()
+
+    assert preview.image.size() == QtCore.QSize(2, 2)
+    assert preview.source_size == QtCore.QSize(3, 3)
+    assert preview.source_bytes == source_bytes
+    assert preview.source_format == 'png'
+    assert filename == imgfilename3x3
+
+
+def test_preview_from_bytes_preserves_aspect_ratio(qapp):
+    image = QtGui.QImage(8, 4, QtGui.QImage.Format.Format_RGB32)
+    buffer = QtCore.QByteArray()
+    image_buffer = QtCore.QBuffer(buffer)
+    image_buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
+    image.save(image_buffer, 'PNG')
+
+    preview = preview_from_bytes(bytes(buffer), 2)
+
+    assert preview.image.size() == QtCore.QSize(2, 1)
+    assert preview.source_size == QtCore.QSize(8, 4)
 
 
 @httpretty.activate

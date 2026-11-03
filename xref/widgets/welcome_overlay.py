@@ -36,8 +36,7 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
                 f'<p>{tr("Right-click for more options.")}</p>'
                 f'<p>{tr("Double-click the empty canvas to go full screen.")}'
                 f'</p>'
-                f'<p>'
-                f'{tr("Drag just inside a window edge to move the window.")}'
+                f'<p>{tr("Right-click and drag anywhere to move the window.")}'
                 f'</p>')
 
     def __init__(self, parent):
@@ -92,7 +91,7 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
             on=False)
 
     def mousePressEvent(self, event):
-        if self.control_target.handle_window_edge_press(event):
+        if self.control_target.handle_window_resize_press(event):
             event.accept()
             return
         if self.mousePressEventMainControls(event):

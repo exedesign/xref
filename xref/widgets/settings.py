@@ -19,7 +19,7 @@ import logging
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
-from xref import constants, i18n
+from xref import constants, i18n, model3d
 from xref.config import XRefSettings, settings_events
 from xref.i18n import tr
 
@@ -178,8 +178,8 @@ class ArrangeDefaultWidget(RadioGroup):
 
 class ImageStorageFormatWidget(RadioGroup):
     TITLE = 'Image Storage Format:'
-    HELPTEXT = ('How images are stored inside bee files.'
-                ' Changes will only take effect on newly saved images.')
+    HELPTEXT = ('How newly generated images are encoded in scene files. '
+                'Imported source images are embedded unchanged.')
     KEY = 'Items/image_storage_format'
     OPTIONS = (
         ('best', 'Best Guess',
@@ -200,13 +200,14 @@ class ArrangeGapWidget(IntegerGroup):
     MAX = 200
 
 
-class AllocationLimitWidget(IntegerGroup):
-    TITLE = 'Maximum Image Size:'
-    HELPTEXT = ('The maximum image size that can be loaded (in megabytes). '
-                'Set to 0 for no limitation.')
-    KEY = 'Items/image_allocation_limit'
-    MIN = 0
-    MAX = 10000
+class ImagePreviewMaxDimensionWidget(IntegerGroup):
+    TITLE = 'Maximum Image Preview Dimension:'
+    HELPTEXT = (
+        'Images larger than this are decoded as smaller on-screen previews. '
+        'The original image is preserved in the scene file.')
+    KEY = 'Items/image_preview_max_dimension'
+    MIN = 256
+    MAX = 16384
 
 
 class ConfirmCloseUnsavedWidget(SingleCheckboxGroup):
@@ -306,21 +307,12 @@ class WindowCornerRadiusWidget(IntegerGroup):
     MAX = 32
 
 
-class WindowMoveMarginWidget(IntegerGroup):
-    TITLE = 'Window Edge Move Area:'
-    HELPTEXT = ('The frameless window has no title bar. Drag this many pixels '
-                'inside the window edge to move it; the outermost pixels '
-                'resize the window. Set to 0 to disable the move area.')
-    KEY = 'View/window_move_margin'
-    MIN = 0
-    MAX = 60
-
-
 class SettingsDialog(QtWidgets.QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.layout = QtWidgets.QVBoxLayout()
         self.setLayout(self.layout)
+        self.resize(900, 560)
         self.build()
         i18n.language_events.changed.connect(self.on_language_changed)
         self.show()
@@ -336,49 +328,95 @@ class SettingsDialog(QtWidgets.QDialog):
                 widget.deleteLater()
         self.setWindowTitle(tr('{app} Settings', app=constants.APPNAME))
 
-        tabs = QtWidgets.QTabWidget()
+        content = QtWidgets.QHBoxLayout()
+        sidebar = QtWidgets.QWidget()
+        sidebar.setFixedWidth(220)
+        sidebar_layout = QtWidgets.QVBoxLayout(sidebar)
+        self.search_input = QtWidgets.QLineEdit()
+        self.search_input.setPlaceholderText(tr('Search settings'))
+        self.search_input.textChanged.connect(self.filter_settings)
+        sidebar_layout.addWidget(self.search_input)
+        self.categories = QtWidgets.QListWidget()
+        self.categories.currentRowChanged.connect(
+            self.on_category_changed)
+        sidebar_layout.addWidget(self.categories)
+        content.addWidget(sidebar)
 
-        # Miscellaneous
-        misc = QtWidgets.QWidget()
-        misc_layout = QtWidgets.QGridLayout()
-        misc.setLayout(misc_layout)
-        misc_layout.addWidget(LanguageWidget(), 0, 0)
-        misc_layout.addWidget(ConfirmCloseUnsavedWidget(), 1, 0)
-        misc_layout.addWidget(AutosaveWidget(), 2, 0)
-        misc_layout.addWidget(AutosaveIntervalWidget(), 2, 1)
-        misc_layout.addWidget(WindowMoveMarginWidget(), 3, 0)
-        misc_layout.addWidget(WindowButtonsDelayWidget(), 3, 1)
-        misc_layout.addWidget(WindowCornerRadiusWidget(), 4, 0)
-        misc_layout.addWidget(CanvasColorWidget(), 4, 1)
-        misc_layout.addWidget(ShowMediaTitlesWidget(), 5, 0)
-        tabs.addTab(misc, tr('&Miscellaneous'))
+        self.pages = QtWidgets.QStackedWidget()
+        content.addWidget(self.pages, 1)
+        self.layout.addLayout(content, 1)
 
-        # Images & Items
-        items = QtWidgets.QWidget()
-        items_layout = QtWidgets.QGridLayout()
-        items.setLayout(items_layout)
-        items_layout.addWidget(ImageStorageFormatWidget(), 0, 0)
-        items_layout.addWidget(AllocationLimitWidget(), 0, 1)
-        items_layout.addWidget(ArrangeGapWidget(), 1, 0)
-        items_layout.addWidget(ArrangeDefaultWidget(), 1, 1)
-        tabs.addTab(items, tr('&Images && Items'))
+        performance_widgets = [
+            ImagePreviewMaxDimensionWidget, ModelPreviewIntervalWidget]
+        if not model3d.F3D_ENABLED:
+            performance_widgets.insert(1, ModelMaxTrianglesWidget)
+        category_specs = [
+            ('Performance', QtWidgets.QStyle.StandardPixmap.SP_ComputerIcon,
+             performance_widgets),
+            ('Appearance', QtWidgets.QStyle.StandardPixmap.SP_DesktopIcon,
+             [CanvasColorWidget, ShowMediaTitlesWidget]),
+            ('Saving and loading',
+             QtWidgets.QStyle.StandardPixmap.SP_DialogSaveButton,
+             [ImageStorageFormatWidget, AutosaveWidget,
+              AutosaveIntervalWidget, ConfirmCloseUnsavedWidget,
+              RememberSceneLayoutsWidget]),
+            ('Window', QtWidgets.QStyle.StandardPixmap.SP_TitleBarMenuButton,
+             [WindowButtonsDelayWidget, WindowCornerRadiusWidget]),
+            ('Images',
+             QtWidgets.QStyle.StandardPixmap.SP_FileDialogContentsView,
+             [ArrangeDefaultWidget, ArrangeGapWidget]),
+            ('Keyboard shortcuts',
+             QtWidgets.QStyle.StandardPixmap.SP_DialogApplyButton, []),
+            ('System', QtWidgets.QStyle.StandardPixmap.SP_BrowserReload,
+             [LanguageWidget]),
+        ]
+        self.category_pages = []
+        for title, icon, widget_classes in category_specs:
+            page = QtWidgets.QWidget()
+            page_layout = QtWidgets.QVBoxLayout(page)
+            heading = QtWidgets.QLabel(tr(title))
+            heading.setObjectName('settingsCategoryHeading')
+            heading_font = heading.font()
+            heading_font.setPointSize(16)
+            heading_font.setBold(True)
+            heading.setFont(heading_font)
+            page_layout.addWidget(heading)
 
-        # View
-        view_tab = QtWidgets.QWidget()
-        view_layout = QtWidgets.QGridLayout()
-        view_tab.setLayout(view_layout)
-        view_layout.addWidget(RememberSceneLayoutsWidget(), 0, 0)
-        tabs.addTab(view_tab, tr('&View'))
+            if widget_classes:
+                grid = QtWidgets.QGridLayout()
+                widgets = []
+                for index, widget_class in enumerate(widget_classes):
+                    setting_widget = widget_class()
+                    widgets.append(setting_widget)
+                    grid.addWidget(setting_widget, index // 2, index % 2)
+                grid.setRowStretch((len(widgets) + 1) // 2, 1)
+                grid.setColumnStretch(0, 1)
+                grid.setColumnStretch(1, 1)
+                page_layout.addLayout(grid, 1)
+            else:
+                widgets = []
+                description = QtWidgets.QLabel(
+                    tr('Configure keyboard and mouse shortcuts.'))
+                description.setWordWrap(True)
+                page_layout.addWidget(description)
+                open_controls = QtWidgets.QPushButton(
+                    tr('Open Keyboard & Mouse Controls'))
+                open_controls.clicked.connect(self.open_controls_dialog)
+                page_layout.addWidget(open_controls, 0, Qt.AlignmentFlag.AlignLeft)
+                page_layout.addStretch(1)
 
-        # 3D Viewer
-        viewer = QtWidgets.QWidget()
-        viewer_layout = QtWidgets.QGridLayout()
-        viewer.setLayout(viewer_layout)
-        viewer_layout.addWidget(ModelMaxTrianglesWidget(), 0, 0)
-        viewer_layout.addWidget(ModelPreviewIntervalWidget(), 0, 1)
-        tabs.addTab(viewer, tr('3&D Viewer'))
+            page.searchable_widgets = widgets
+            page.category_title = title
+            self.pages.addWidget(page)
+            item = QtWidgets.QListWidgetItem(
+                self.style().standardIcon(icon), tr(title))
+            self.categories.addItem(item)
+            self.category_pages.append(page)
 
-        self.layout.addWidget(tabs)
+        self.no_results = QtWidgets.QLabel(tr('No matching settings'))
+        self.no_results.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.pages.addWidget(self.no_results)
+        self.categories.setCurrentRow(0)
 
         # Bottom row of buttons
         buttons = QtWidgets.QDialogButtonBox(
@@ -391,6 +429,46 @@ class SettingsDialog(QtWidgets.QDialog):
                           QtWidgets.QDialogButtonBox.ButtonRole.ActionRole)
 
         self.layout.addWidget(buttons)
+        self.filter_settings('')
+
+    def on_category_changed(self, row):
+        if 0 <= row < len(self.category_pages):
+            self.pages.setCurrentWidget(self.category_pages[row])
+
+    def filter_settings(self, text):
+        query = text.casefold().strip()
+        visible_rows = []
+        for row, page in enumerate(self.category_pages):
+            category_matches = query in tr(page.category_title).casefold()
+            visible_widgets = []
+            for setting_widget in page.searchable_widgets:
+                searchable = ' '.join((
+                    tr(setting_widget.TITLE or ''),
+                    tr(setting_widget.HELPTEXT or ''),
+                )).casefold()
+                visible = not query or category_matches or query in searchable
+                setting_widget.setVisible(visible)
+                if visible:
+                    visible_widgets.append(setting_widget)
+            visible = not query or category_matches or bool(visible_widgets)
+            self.categories.item(row).setHidden(not visible)
+            if visible:
+                visible_rows.append(row)
+
+        current_row = self.categories.currentRow()
+        if current_row not in visible_rows:
+            self.categories.setCurrentRow(
+                visible_rows[0] if visible_rows else -1)
+        if visible_rows:
+            self.pages.setCurrentWidget(
+                self.category_pages[self.categories.currentRow()])
+        else:
+            self.pages.setCurrentWidget(self.no_results)
+
+    def open_controls_dialog(self):
+        from xref.widgets.controls import ControlsDialog
+        dialog = ControlsDialog(self)
+        dialog.exec()
 
     def on_language_changed(self, code):
         # Deferred, so the widget that triggered the change is not deleted

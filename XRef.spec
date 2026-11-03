@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import platform
 from os.path import join
 import sys
 
@@ -15,17 +16,31 @@ if sys.platform.startswith('win'):
 else:
     icon = 'logo.icns'  # For OSX; param gets ignored on Linux
 
+f3d_binaries = []
+f3d_datas = []
+f3d_hiddenimports = []
+usd_binaries = []
+usd_datas = []
+usd_hiddenimports = []
+if (sys.platform == 'win32' and sys.version_info >= (3, 10)
+        and platform.machine().lower() in ('amd64', 'x86_64')
+        and sys.maxsize > 2**32):
+    from PyInstaller.utils.hooks import collect_all
+    f3d_datas, f3d_binaries, f3d_hiddenimports = collect_all('f3d')
+    usd_datas, usd_binaries, usd_hiddenimports = collect_all('pxr')
 
 a = Analysis(
     [join('xref', '__main__.py')],
     pathex=[os.getcwd()],
-    binaries=[],
+    binaries=f3d_binaries + usd_binaries,
     datas=[
         (join('xref', 'documentation'), join('xref', 'documentation')),
         (join('xref', 'assets', '*.png'), join('xref', 'assets')),
         (join('xref', 'assets', '*.svg'), join('xref', 'assets')),
         (join('xref', 'assets', '*.ico'), join('xref', 'assets')),
-        (join('xref', 'assets', '*.icns'), join('xref', 'assets'))],
+        (join('xref', 'assets', '*.icns'), join('xref', 'assets')),
+        *f3d_datas,
+        *usd_datas],
     # The WebRTC mirror stack is imported lazily/conditionally, so
     # PyInstaller's static analysis misses it
     hiddenimports=[
@@ -38,10 +53,10 @@ a = Analysis(
         'numpy',
         'cffi',
         'pyee',
-    ],
+    ] + f3d_hiddenimports + usd_hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[join('xref', 'pyi_rth_f3d.py')],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

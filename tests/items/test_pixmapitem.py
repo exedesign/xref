@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
+from xref.fileio.image import preview_from_bytes
 from xref.items import XRefPixmapItem, item_registry
 
 
@@ -85,7 +86,7 @@ def test_bounding_rect_unselected_in_crop_mode(qapp, imgfilename3x3):
     assert item.bounding_rect_unselected() == QtCore.QRectF(-0.5, -0.5, 4, 4)
 
 
-def test_get_extra_save_data(item):
+def test_get_extra_save_data(qapp, item):
     item.filename = 'foobar.png'
     item.crop = QtCore.QRectF(10, 20, 30, 40)
     item.setOpacity(0.75)
@@ -94,8 +95,24 @@ def test_get_extra_save_data(item):
         'filename': 'foobar.png',
         'crop': [10, 20, 30, 40],
         'opacity': 0.75,
-        'grayscale': True
+        'grayscale': True,
+        'before_after_pair_id': None,
+        'before_after_role': None,
     }
+
+
+def test_preview_pixmap_keeps_original_dimensions_and_bytes(
+        qapp, imgdata3x3):
+    preview = preview_from_bytes(imgdata3x3, 2)
+    item = XRefPixmapItem(
+        preview.image, 'test.png',
+        source_image_bytes=preview.source_bytes,
+        source_image_size=preview.source_size,
+        source_image_format=preview.source_format)
+
+    assert item.pixmap().size() == QtCore.QSize(2, 2)
+    assert item.bounding_rect_unselected() == QtCore.QRectF(0, 0, 3, 3)
+    assert item.pixmap_to_bytes() == (imgdata3x3, 'png')
 
 
 def test_get_filename_for_export_when_save_id_and_filename(item):
@@ -400,6 +417,17 @@ def test_create_from_data_with_grayscale(item):
     assert item.grayscale is True
 
 
+def test_create_from_data_restores_before_after_pair(item):
+    new_item = XRefPixmapItem.create_from_data(
+        item=item, data={
+            'before_after_pair_id': 'pair-id',
+            'before_after_role': 'after',
+        })
+    assert new_item is item
+    assert item.before_after_pair_id == 'pair-id'
+    assert item.before_after_role == 'after'
+
+
 def test_create_copy(qapp, imgfilename3x3):
     item = XRefPixmapItem(QtGui.QImage(imgfilename3x3), 'foo.png')
     item.setPos(20, 30)
@@ -514,6 +542,8 @@ def test_get_crop_edge_cursor(edge, rotation, expected, qapp, item):
 
 def test_paint(qapp, item):
     item.pixmap = MagicMock()
+    item.pixmap.return_value.width.return_value = 10
+    item.pixmap.return_value.height.return_value = 10
     item.paint_selectable = MagicMock()
     item.crop = QtCore.QRectF(10, 20, 30, 40)
     painter = MagicMock(
@@ -530,6 +560,9 @@ def test_paint(qapp, item):
 
 def test_paint_when_crop_mode(qapp, item):
     item.pixmap = MagicMock()
+    item.pixmap.return_value.width.return_value = 10
+    item.pixmap.return_value.height.return_value = 10
+    item.pixmap.return_value.rect.return_value = QtCore.QRect(0, 0, 10, 10)
     item.paint_selectable = MagicMock()
     item.crop = QtCore.QRectF(10, 20, 30, 40)
     item.crop_mode = True
@@ -540,7 +573,10 @@ def test_paint_when_crop_mode(qapp, item):
                 m11=MagicMock(return_value=0.5))))
     item.paint(painter, None, None)
     item.paint_selectable.assert_not_called()
-    painter.drawPixmap.assert_called_with(0, 0, item.pixmap())
+    painter.drawPixmap.assert_called_with(
+        QtCore.QRectF(0, 0, item.width, item.height),
+        item.pixmap(),
+        QtCore.QRectF(0, 0, 10, 10))
 
 
 def test_enter_crop_mode(view, item):
@@ -824,6 +860,7 @@ def test_ensure_point_within_crop_bounds(
     pixmap = MagicMock()
     pixmap.size.return_value = QtCore.QRectF(0, 0, 100, 80)
     item.pixmap = MagicMock(return_value=pixmap)
+    item._source_image_size = QtCore.QSize(100, 80)
     item.crop_temp = QtCore.QRectF(10, 20, 30, 40)
     result = item.ensure_point_within_crop_bounds(
         QtCore.QPointF(*point), getattr(item, handle))
@@ -847,6 +884,7 @@ def test_mouse_move_when_crop_mode_inside_handle(
     pixmap.size.return_value = QtCore.QRectF(0, 0, 100, 80)
     item.crop_mode = True
     item.pixmap = MagicMock(return_value=pixmap)
+    item._source_image_size = QtCore.QSize(100, 80)
     item.crop_temp = QtCore.QRectF(10, 20, 30, 40)
     item.crop_mode_event_start = QtCore.QPointF(*start)
     item.crop_mode_move = getattr(item, handle)

@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from PyQt6 import QtGui
 
-from xref.actions.actions import Action
+from xref.actions.actions import Action, actions
 
 
 def test_action_str():
@@ -117,6 +117,58 @@ def test_action_get_default_shortcut_first_when_none_set():
 def test_action_get_default_shortcut_second_when_none_set():
     action = Action(id='foo', text='Foo', shortcuts=['Ctrl+F'])
     assert action.get_default_shortcut(1) is None
+
+
+def test_pureref_matching_default_shortcuts():
+    expected = {
+        'open': ['Ctrl+L'],
+        'save': ['Ctrl+S'],
+        'save_as': ['Ctrl+Shift+S'],
+        'export_scene': ['Ctrl+E'],
+        'export_images': ['Ctrl+Alt+I'],
+        'quit': ['Ctrl+Q'],
+        'insert_images': ['Ctrl+I'],
+        'insert_text': ['Ctrl+N'],
+        'undo': ['Ctrl+Z'],
+        'redo': ['Ctrl+Shift+Z'],
+        'copy': ['Ctrl+C'],
+        'cut': ['Ctrl+X'],
+        'paste': ['Ctrl+V'],
+        'delete': ['Del'],
+        'raise_to_top': ['Up'],
+        'lower_to_bottom': ['Down'],
+        'normalize_height': ['Ctrl+Alt+Left'],
+        'normalize_width': ['Ctrl+Alt+Right'],
+        'normalize_size': ['Ctrl+Alt+Up'],
+        'arrange_optimal': ['Ctrl+P'],
+        'arrange_randomly': ['Ctrl+Alt+R'],
+        'duplicate': ['Ctrl+D'],
+        'grayscale': ['Alt+G'],
+        'crop': ['Ctrl+Alt+Shift+C'],
+        'flip_horizontally': ['Alt+Shift+H'],
+        'flip_vertically': ['Alt+Shift+V'],
+        'new_scene': ['Ctrl+K'],
+        'reset_crop': ['Ctrl+Shift+C'],
+        'reset_transforms': ['Ctrl+Shift+T'],
+        'select_all': ['Ctrl+A'],
+        'help': ['F1'],
+        'maximize': ['Ctrl+F'],
+        'minimize': ['Ctrl+M'],
+        'always_on_top': ['Ctrl+Shift+A'],
+        'settings': ['Ctrl+U'],
+    }
+
+    for action_id, shortcut in expected.items():
+        assert actions[action_id].shortcuts == shortcut
+
+
+def test_default_action_shortcuts_are_unique():
+    shortcuts = [
+        shortcut
+        for action in actions.values()
+        for shortcut in action.shortcuts
+    ]
+    assert len(shortcuts) == len(set(shortcuts))
 
 
 @patch('xref.actions.actions.menu_structure',

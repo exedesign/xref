@@ -38,19 +38,25 @@ def test_command_line_args_get_unknown():
     CommandlineArgs._instance = None
 
 
-def test_settings_on_startup_sets_alloc_from_settings(settings):
+def test_settings_on_startup_removes_image_allocation_limit(
+        settings, monkeypatch):
     settings.setValue('Items/image_allocation_limit', 66)
+    monkeypatch.setenv('QT_IMAGEIO_MAXALLOC', '42')
     QtGui.QImageReader.setAllocationLimit(100)
     settings.on_startup()
-    assert QtGui.QImageReader.allocationLimit() == 66
+    assert QtGui.QImageReader.allocationLimit() == 0
+    assert settings.value('Items/image_allocation_limit') is None
 
 
-def test_settings_on_startup_sets_alloc_from_environment(settings):
-    settings.setValue('Items/image_allocation_limit', 66)
-    os.environ['QT_IMAGEIO_MAXALLOC'] = '42'
-    QtGui.QImageReader.setAllocationLimit(100)
-    settings.on_startup()
-    assert QtGui.QImageReader.allocationLimit() == 42
+def test_image_preview_max_dimension_validates(settings):
+    assert settings.valueOrDefault(
+        'Items/image_preview_max_dimension') == 4096
+    settings.setValue('Items/image_preview_max_dimension', 2048)
+    assert settings.valueOrDefault(
+        'Items/image_preview_max_dimension') == 2048
+    settings.setValue('Items/image_preview_max_dimension', 128)
+    assert settings.valueOrDefault(
+        'Items/image_preview_max_dimension') == 4096
 
 
 def test_settings_set_value_without_callback(settings):

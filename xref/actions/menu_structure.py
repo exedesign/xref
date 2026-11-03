@@ -61,6 +61,8 @@ menu_structure = [
             'fit_selection',
             MENU_SEPARATOR,
             'fullscreen',
+            'maximize',
+            'minimize',
             'always_on_top',
             'show_scrollbars',
             'show_menubar',
@@ -102,6 +104,8 @@ menu_structure = [
     {
         'menu': '&Arrange',
         'items': [
+            'match_before_after',
+            MENU_SEPARATOR,
             'arrange_optimal',
             'arrange_horizontal',
             'arrange_vertical',

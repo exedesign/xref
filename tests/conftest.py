@@ -4,6 +4,9 @@ import uuid
 
 from unittest.mock import MagicMock, patch
 
+# F3D's Windows native binding must be loaded before PyQt6's bundled Qt DLLs.
+from xref import model3d
+
 from PyQt6 import QtGui, QtWidgets
 
 

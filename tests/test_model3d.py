@@ -1,6 +1,8 @@
 """Tests for the 3D model viewer (OBJ/STL/PLY)."""
 
+import os
 import struct
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PyQt6 import QtCore, QtGui, QtWidgets
@@ -77,6 +79,13 @@ def test_model_formats_are_recognised():
     assert media_type('b.STL') == 'model'
     assert media_type('c.ply') == 'model'
     assert media_type('d.fbx') == 'model'
+    if model3d.F3D_ENABLED:
+        assert media_type('e.3mf') == 'model'
+        if model3d.USD_CORE_ENABLED:
+            assert media_type('e.usdz') == 'model'
+            assert media_type('e.usdc') == 'model'
+    else:
+        assert media_type('e.usdz') == 'model'
     assert media_type('e.png') == 'image'
 
 
@@ -133,10 +142,49 @@ def test_bounding_box():
     assert (maxx, maxy, maxz) == (1, 1, 1)
 
 
+def test_decimate_preserves_connected_surface():
+    side = 40
+    vertices = [
+        coordinate
+        for y in range(side + 1)
+        for x in range(side + 1)
+        for coordinate in (x / side, y / side, 0)
+    ]
+    triangles = []
+    for y in range(side):
+        for x in range(side):
+            corner = y * (side + 1) + x
+            triangles.extend((
+                (corner, corner + 1, corner + side + 2),
+                (corner, corner + side + 2, corner + side + 1),
+            ))
+
+    reduced = model3d.decimate(
+        {'vertices': vertices, 'triangles': triangles}, 100)
+
+    assert 0 < len(reduced['triangles']) <= 100
+    assert len(reduced['vertices']) // 3 < len(reduced['triangles']) * 3
+    assert len(set(reduced['triangles'])) == len(reduced['triangles'])
+
+
 def test_face_normals_are_unit():
     for n in model3d.face_normals(cube_mesh()):
         length = (n[0]**2 + n[1]**2 + n[2]**2) ** 0.5
         assert abs(length - 1.0) < 1e-6
+
+
+def test_vertex_normals_smooth_shared_vertices():
+    mesh = {
+        'vertices': [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+        'triangles': [(0, 1, 2), (1, 0, 3)],
+    }
+
+    normals = model3d.vertex_normals(mesh)
+
+    assert normals[0] == pytest.approx((0, 2 ** -0.5, 2 ** -0.5))
+    assert normals[1] == pytest.approx((0, 2 ** -0.5, 2 ** -0.5))
+    assert normals[2] == pytest.approx((0, 0, 1))
+    assert normals[3] == pytest.approx((0, 1, 0))
 
 
 def test_damaged_files_raise_value_error():
@@ -161,6 +209,9 @@ def make_glb():
                    + struct.pack('<3H', 0, 1, 2))
     doc = {
         'asset': {'version': '2.0'},
+        'scene': 0,
+        'scenes': [{'nodes': [0]}],
+        'nodes': [{'mesh': 0}],
         'meshes': [{'primitives': [{'attributes': {'POSITION': 0},
                                     'indices': 1}]}],
         'accessors': [
@@ -236,6 +287,28 @@ def test_usdz_parser():
     assert len(mesh['vertices']) == 9
 
 
+@pytest.mark.skipif(not model3d.USD_CORE_ENABLED,
+                    reason='OpenUSD is not installed')
+def test_usdc_parser_reads_transformed_mesh(tmp_path):
+    from pxr import Gf, Usd, UsdGeom
+
+    filename = tmp_path / 'triangle.usdc'
+    stage = Usd.Stage.CreateNew(str(filename))
+    mesh = UsdGeom.Mesh.Define(stage, '/Triangle')
+    mesh.CreatePointsAttr([
+        Gf.Vec3f(0, 0, 0), Gf.Vec3f(1, 0, 0), Gf.Vec3f(0, 1, 0)])
+    mesh.CreateFaceVertexCountsAttr([3])
+    mesh.CreateFaceVertexIndicesAttr([0, 1, 2])
+    mesh.AddTranslateOp().Set(Gf.Vec3d(4, 5, 6))
+    stage.GetRootLayer().Save()
+
+    parsed = model3d.parse_model(b'', filename.name, str(filename))
+
+    assert parsed['triangles'] == [(0, 1, 2)]
+    assert parsed['vertices'] == [4.0, 5.0, 6.0, 5.0, 5.0, 6.0,
+                                  4.0, 6.0, 6.0]
+
+
 def test_usdz_quad_is_fan_triangulated():
     usda = (b'#usda 1.0\n'
             b'def Mesh "Mesh"\n{\n'
@@ -254,7 +327,156 @@ def test_usdz_quad_is_fan_triangulated():
 def test_new_model_formats_are_classified():
     assert media_type('a.glb') == 'model'
     assert media_type('b.gltf') == 'model'
-    assert media_type('c.usdz') == 'model'
+    assert media_type('c.usdz') == (
+        'model' if not model3d.F3D_ENABLED or model3d.USD_CORE_ENABLED
+        else None)
+
+
+@pytest.mark.skipif(not model3d.F3D_ENABLED,
+                    reason='F3D backend is enabled on 64-bit Windows')
+def test_f3d_renderer_renders_and_rotates_model(tmp_path):
+    filename = tmp_path / 'cube.obj'
+    filename.write_bytes(CUBE_OBJ)
+    renderer = model3d.F3DRenderer(str(filename))
+    try:
+        first = renderer.render(96, 96, 30, 20, 1)
+        rotated = renderer.render(96, 96, 130, -20, 1.5)
+        assert first.width == 96
+        assert first.height == 96
+        assert first.channel_count == 4
+        alpha = first.content[3::4]
+        assert 0 in alpha
+        assert 255 in alpha
+        assert first.content != rotated.content
+        for index in range(0, len(first.content), 4):
+            if first.content[index + 3]:
+                red, green, blue = first.content[index:index + 3]
+                assert abs(red - green) <= 4
+                assert abs(green - blue) <= 8
+    finally:
+        renderer.close()
+
+
+@pytest.mark.skipif(not model3d.F3D_ENABLED,
+                    reason='F3D backend is enabled on 64-bit Windows')
+def test_f3d_native_mouse_controls_preserve_camera(tmp_path):
+    filename = tmp_path / 'cube.obj'
+    filename.write_bytes(CUBE_OBJ)
+    renderer = model3d.F3DRenderer(str(filename))
+    try:
+        renderer.render(96, 96, 30, 20, 1)
+        before = renderer.camera_state()
+        renderer.set_native_interaction(True)
+        renderer.begin_interaction('left', 48, 48)
+        renderer.update_interaction(72, 60)
+        renderer.end_interaction('left', 72, 60)
+        after_interaction = renderer.camera_state()
+        renderer.render(96, 96, 30, 20, 1)
+
+        assert after_interaction != before
+        assert renderer.camera_state() == after_interaction
+    finally:
+        renderer.close()
+
+
+@pytest.mark.skipif(not model3d.F3D_ENABLED,
+                    reason='F3D backend is enabled on 64-bit Windows')
+def test_f3d_renderer_renders_mesh_with_clay_shading():
+    mesh = cube_mesh()
+    renderer = model3d.F3DRenderer.from_mesh(
+        mesh, model3d.vertex_normals(mesh))
+    temporary_file = renderer.temporary_file
+    try:
+        image = renderer.render(96, 96, 30, 20, 1)
+        assert image.width == 96
+        pixels = [
+            tuple(image.content[index:index + 3])
+            for index in range(0, len(image.content), image.channel_count)
+            if image.content[index + 3]
+        ]
+        assert pixels
+        assert max(max(pixel) - min(pixel) for pixel in pixels) <= 8
+        assert len(set(pixels)) > 1
+    finally:
+        renderer.close()
+    assert not os.path.exists(temporary_file)
+
+
+@pytest.mark.skipif(not model3d.F3D_ENABLED,
+                    reason='F3D backend is enabled on 64-bit Windows')
+def test_model_item_uses_f3d_image_in_qt(tmp_path):
+    filename = tmp_path / 'cube.obj'
+    filename.write_bytes(CUBE_OBJ)
+    item = XRefModelItem(model_path=str(filename), filename=filename.name)
+
+    assert item._ensure_mesh()
+    image = item._render_projection(item.bounding_rect_unselected())
+
+    assert image.format() == QtGui.QImage.Format.Format_RGBA8888
+    assert any(image.pixelColor(x, y).alpha() > 0
+               for x in range(image.width())
+               for y in range(image.height()))
+    item.release_mesh()
+
+
+def test_f3d_model_paints_without_software_mesh():
+    item = XRefModelItem(filename='triangle.glb')
+    item._renderer = MagicMock()
+    image = QtGui.QImage(8, 8, QtGui.QImage.Format.Format_RGBA8888)
+    rect = item.bounding_rect_unselected()
+    painter = MagicMock()
+
+    with patch.object(item, '_render_projection', return_value=image):
+        item._paint_model(painter, rect)
+
+    painter.drawImage.assert_called_once_with(rect, image)
+
+
+@pytest.mark.skipif(
+    not model3d.F3D_ENABLED or '.glb' not in model3d.F3D_MODEL_EXTENSIONS,
+    reason='F3D GLB reader is available on supported Windows builds')
+def test_f3d_renderer_renders_glb(tmp_path):
+    glb, _ = make_glb()
+    filename = tmp_path / 'triangle.glb'
+    filename.write_bytes(glb)
+    renderer = model3d.F3DRenderer(str(filename))
+    try:
+        image = renderer.render(64, 64, 30, 20, 1)
+        assert image.width == 64
+        assert image.height == 64
+        assert any(image.content[index + 3]
+                   for index in range(0, len(image.content), 4))
+    finally:
+        renderer.close()
+
+
+@pytest.mark.skipif(not model3d.USD_CORE_ENABLED,
+                    reason='OpenUSD is not installed')
+@pytest.mark.skipif(
+    model3d.F3D_ENABLED
+    and '.usdz' in model3d.F3D_MODEL_EXTENSIONS,
+    reason='F3D already supports USDZ')
+def test_model_item_falls_back_to_openusd_for_usdz(tmp_path):
+    filename = tmp_path / 'triangle.usdz'
+    filename.write_bytes(make_usdz())
+    item = XRefModelItem(model_path=str(filename), filename=filename.name)
+
+    assert item._ensure_mesh()
+    assert len(item._mesh['triangles']) == 1
+    assert (item._renderer is not None) == model3d.F3D_ENABLED
+
+    image = item._render_projection(item.bounding_rect_unselected())
+
+    assert image.width() == item.DEFAULT_SIZE[0]
+    assert image.height() == item.DEFAULT_SIZE[1]
+    if model3d.F3D_ENABLED:
+        assert image.pixelColor(0, 0).alpha() == 0
+        renderer_file = item._renderer.temporary_file
+    else:
+        assert image.pixelColor(240, 240) != image.pixelColor(0, 0)
+    item.release_mesh()
+    if model3d.F3D_ENABLED:
+        assert not os.path.exists(renderer_file)
 
 
 # -- FBX binary ----------------------------------------------------------------
@@ -321,7 +543,7 @@ def make_model_item(view):
     item = XRefModelItem(
         filename='cube.obj', mesh=mesh, size=(480, 480))
     item._mesh = mesh
-    item._normals = model3d.face_normals(mesh)
+    item._normals = model3d.vertex_normals(mesh)
     view.scene.addItem(item)
     return item
 
@@ -345,6 +567,15 @@ def test_item_renders_shaded_triangles(view, qapp):
     item = make_model_item(view)
     image = render(item)
     assert lit_samples(image) > 100
+    object_pixels = [
+        image.pixelColor(x, y)
+        for y in range(image.height())
+        for x in range(image.width())
+        if image.pixelColor(x, y).lightness() > 25
+    ]
+    assert max(abs(color.red() - color.blue())
+               for color in object_pixels) <= 1
+    assert image.pixelColor(0, 0).red() == 0
 
 
 def test_rotation_changes_the_projection(view, qapp):
@@ -353,6 +584,38 @@ def test_rotation_changes_the_projection(view, qapp):
     item.set_view(yaw=200, pitch=-30)
     second = render(item)
     assert first != second
+
+
+def test_middle_drag_orbits_model(view):
+    item = make_model_item(view)
+    original_view = item.current_view()
+    scene_pos = item.mapToScene(item.bounding_rect_unselected().center())
+    start = view.mapFromScene(scene_pos)
+    end = start + QtCore.QPoint(20, 10)
+
+    def mouse_event(event_type, pos, button, buttons):
+        global_pos = view.viewport().mapToGlobal(pos)
+        return QtGui.QMouseEvent(
+            event_type, QtCore.QPointF(pos), QtCore.QPointF(pos),
+            QtCore.QPointF(global_pos), button, buttons,
+            QtCore.Qt.KeyboardModifier.NoModifier)
+
+    view.mousePressEvent(mouse_event(
+        QtCore.QEvent.Type.MouseButtonPress, start,
+        QtCore.Qt.MouseButton.MiddleButton,
+        QtCore.Qt.MouseButton.MiddleButton))
+    view.mouseMoveEvent(mouse_event(
+        QtCore.QEvent.Type.MouseMove, end,
+        QtCore.Qt.MouseButton.NoButton,
+        QtCore.Qt.MouseButton.MiddleButton))
+    view.mouseReleaseEvent(mouse_event(
+        QtCore.QEvent.Type.MouseButtonRelease, end,
+        QtCore.Qt.MouseButton.MiddleButton,
+        QtCore.Qt.MouseButton.NoButton))
+
+    assert view.active_mode is None
+    assert item.current_view() == pytest.approx(
+        (original_view[0] + 12, original_view[1] - 6, original_view[2]))
 
 
 def test_view_is_saved_and_restored(view):

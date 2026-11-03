@@ -60,6 +60,19 @@ TRANSLATIONS = {
         '&Collaborate': '&Birlikte Çalış',
         '&Settings': '&Ayarlar',
         '&Help': '&Yardım',
+        'Performance': 'Performans',
+        'Appearance': 'Görünüm',
+        'Saving and loading': 'Kaydetme ve yükleme',
+        'Window': 'Pencere',
+        'Images': 'Görseller',
+        'Keyboard shortcuts': 'Klavye kısayolları',
+        'System': 'Sistem',
+        'Search settings': 'Ayarlarda ara',
+        'No matching settings': 'Eşleşen ayar yok',
+        'Configure keyboard and mouse shortcuts.':
+            'Klavye ve fare kısayollarını yapılandırın.',
+        'Open Keyboard & Mouse Controls':
+            'Klavye ve fare kontrollerini aç',
 
         # -- Actions -------------------------------------------------------
         '&Open': '&Aç',
@@ -68,6 +81,13 @@ TRANSLATIONS = {
         'E&xport Scene...': 'Sahneyi &Dışa Aktar...',
         'Export &Images...': '&Görselleri Dışa Aktar...',
         '&Quit': '&Çıkış',
+        'Ma&ximize': '&Büyüt',
+        'Mi&nimize': '&Küçült',
+        '&Match Before/After': '&Önce/Sonra Eşleştir',
+        'Cannot match images with empty dimensions':
+            'Boyutları boş olan görseller eşleştirilemiyor',
+        'Cannot match images with different aspect ratios':
+            'Farklı en-boy oranlarına sahip görseller eşleştirilemiyor',
         '&Images / PDFs...': '&Görseller / PDF\'ler...',
 '&Images...': '&Görseller...',
         '&Video...': '&Video...',
@@ -75,6 +95,10 @@ TRANSLATIONS = {
         'Click to lock this view': 'Bu görünümü kilitlemek için tıklayın',
         'Click to rotate the model again':
             'Modeli tekrar döndürmek için tıklayın',
+        'F3D controls active; click the model again or press '
+        'Escape to return to canvas controls':
+            'F3D kontrolleri etkin; tuval kontrollerine dönmek için '
+            'modele tekrar tıklayın veya Escape tuşuna basın',
         '3D model could not be loaded': '3D model yüklenemedi',
         'Click to lock this frame': 'Bu kareyi kilitlemek için tıklayın',
         'Click to browse the frames again':
@@ -199,10 +223,8 @@ TRANSLATIONS = {
         'unknown device': 'bilinmeyen cihaz',
         'Nothing could be inserted from the dropped data':
             'Bırakılan veriden hiçbir şey eklenemedi',
-        'Unknown format or too big?\n'
-        'Check Settings -> Images & Items -> Maximum Image Size':
-            'Bilinmeyen biçim veya çok büyük?\n'
-            'Ayarlar -> Görseller ve Öğeler -> Maksimum Görsel Boyutu',
+        'The file format is unsupported or the image is damaged.':
+            'Dosya biçimi desteklenmiyor veya görsel bozuk.',
         'Copied color to clipboard: {name}':
             'Renk panoya kopyalandı: {name}',
         'File exists': 'Dosya mevcut',
@@ -389,11 +411,17 @@ TRANSLATIONS = {
         'Always WebP': 'Her Zaman WebP',
         'Lossless or lossy, supports transparency, modern format':
             'Kayıplı veya kayıpsız, saydamlığı destekler, modern biçim',
-        'Maximum Image Size:': 'Maksimum Görsel Boyutu:',
-        'The maximum image size that can be loaded (in megabytes). '
-        'Set to 0 for no limitation.':
-            'Yüklenebilecek en büyük görsel boyutu (megabayt). '
-            'Sınırsız için 0 girin.',
+        'Maximum Image Preview Dimension:':
+            'En Büyük Görsel Önizleme Boyutu:',
+        'Images larger than this are decoded as smaller on-screen previews. '
+        'The original image is preserved in the scene file.':
+            'Daha büyük görseller ekranda daha küçük önizlemeler olarak '
+            'çözülür. Özgün görsel sahne dosyasında korunur.',
+        'How newly generated images are encoded in scene files. '
+        'Imported source images are embedded unchanged.':
+            'Yeni oluşturulan görsellerin sahne dosyalarına nasıl '
+            'kodlanacağını belirler. İçe aktarılan görseller değiştirilmeden '
+            'saklanır.',
         'Window Buttons Delay:': 'Pencere Düğmeleri Gecikmesi:',
         'How long the pointer has to rest in the top right corner '
         '(in seconds) before the minimize, full screen and close '
@@ -514,14 +542,6 @@ TRANSLATIONS = {
         'default for looking at reference images.':
             'Çalışma alanının arka plan rengi. Referans görsellere bakmak '
             'için siyah iyi bir varsayılandır.',
-        'Window Edge Move Area:': 'Pencere Kenarı Taşıma Alanı:',
-        'The frameless window has no title bar. Drag this many pixels '
-        'inside the window edge to move it; the outermost pixels '
-        'resize the window. Set to 0 to disable the move area.':
-            'Çerçevesiz pencerenin başlık çubuğu yoktur. Pencereyi taşımak '
-            'için kenardan bu kadar piksel içeriden sürükleyin; en dıştaki '
-            'pikseller pencereyi boyutlandırır. 0 yazarsanız taşıma alanı '
-            'kapanır.',
         'Arrange Gap:': 'Yerleştirme Boşluğu:',
         'The gap between images when using arrange actions.':
             'Yerleştirme işlemlerinde görseller arasındaki boşluk.',
@@ -587,8 +607,8 @@ TRANSLATIONS = {
             'Daha fazla seçenek için sağ tıklayın.',
         'Double-click the empty canvas to go full screen.':
             'Tam ekran için boş alana çift tıklayın.',
-        'Drag just inside a window edge to move the window.':
-            'Pencereyi taşımak için kenarın hemen içindeki alanı sürükleyin.',
+        'Right-click and drag anywhere to move the window.':
+            'Pencereyi taşımak için herhangi bir yerde sağ tıklayıp sürükleyin.',
         'Recent Files': 'Son Dosyalar',
         '&Controls': '&Kontroller',
     },

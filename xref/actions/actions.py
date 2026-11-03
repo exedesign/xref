@@ -117,7 +117,7 @@ actions = ActionList([
     Action(
         id='open',
         text='&Open',
-        shortcuts=['Ctrl+O'],
+        shortcuts=['Ctrl+L'],
         callback='on_action_open',
     ),
     Action(
@@ -143,13 +143,14 @@ actions = ActionList([
     Action(
         id='export_scene',
         text='E&xport Scene...',
-        shortcuts=['Ctrl+Shift+E'],
+        shortcuts=['Ctrl+E'],
         callback='on_action_export_scene',
         group='active_when_items_in_scene',
     ),
     Action(
         id='export_images',
         text='Export &Images...',
+        shortcuts=['Ctrl+Alt+I'],
         callback='on_action_export_images',
         group='active_when_items_in_scene',
     ),
@@ -168,7 +169,7 @@ actions = ActionList([
     Action(
         id='insert_video',
         text='&Video...',
-        shortcuts=['Ctrl+Shift+I'],
+        shortcuts=['Ctrl+Alt+V'],
         callback='on_action_insert_video',
     ),
     Action(
@@ -242,14 +243,14 @@ actions = ActionList([
     Action(
         id='link_items',
         text='&Link Selected Items',
-        shortcuts=['Ctrl+L'],
+        shortcuts=['Ctrl+Alt+K'],
         callback='on_action_link_items',
         group='active_when_selection',
     ),
     Action(
         id='unlink_items',
         text='Remove Lin&ks from Selected Items',
-        shortcuts=['Ctrl+Shift+L'],
+        shortcuts=['Ctrl+Alt+Shift+L'],
         callback='on_action_unlink_items',
         group='active_when_selection',
     ),
@@ -262,7 +263,7 @@ actions = ActionList([
     Action(
         id='collab_join',
         text='&Join Shared Board...',
-        shortcuts=['Ctrl+Shift+J'],
+        shortcuts=['Ctrl+Alt+J'],
         callback='on_action_collab_join',
     ),
     Action(
@@ -292,7 +293,7 @@ actions = ActionList([
     Action(
         id='insert_text',
         text='&Text',
-        shortcuts=['Ctrl+T'],
+        shortcuts=['Ctrl+N'],
         callback='on_action_insert_text',
     ),
     Action(
@@ -339,42 +340,49 @@ actions = ActionList([
     Action(
         id='raise_to_top',
         text='&Raise to Top',
-        shortcuts=['PgUp'],
+        shortcuts=['Up'],
         callback='on_action_raise_to_top',
         group='active_when_selection',
     ),
     Action(
         id='lower_to_bottom',
         text='Lower to Bottom',
-        shortcuts=['PgDown'],
+        shortcuts=['Down'],
         callback='on_action_lower_to_bottom',
         group='active_when_selection',
     ),
     Action(
         id='normalize_height',
         text='&Height',
-        shortcuts=['Shift+H'],
+        shortcuts=['Ctrl+Alt+Left'],
         callback='on_action_normalize_height',
         group='active_when_selection',
     ),
     Action(
         id='normalize_width',
         text='&Width',
-        shortcuts=['Shift+W'],
+        shortcuts=['Ctrl+Alt+Right'],
         callback='on_action_normalize_width',
         group='active_when_selection',
     ),
     Action(
         id='normalize_size',
         text='&Size',
-        shortcuts=['Shift+S'],
+        shortcuts=['Ctrl+Alt+Up'],
         callback='on_action_normalize_size',
         group='active_when_selection',
     ),
     Action(
+        id='match_before_after',
+        text='&Match Before/After',
+        shortcuts=['Ctrl+Shift+M'],
+        callback='on_action_match_before_after',
+        group='active_when_two_images',
+    ),
+    Action(
         id='arrange_optimal',
         text='&Optimal',
-        shortcuts=['Shift+O'],
+        shortcuts=['Ctrl+P'],
         callback='on_action_arrange_optimal',
         group='active_when_selection',
     ),
@@ -419,7 +427,7 @@ actions = ActionList([
     Action(
         id='grayscale',
         text='&Grayscale',
-        shortcuts=['G'],
+        shortcuts=['Alt+G'],
         checkable=True,
         callback='on_action_grayscale',
         group='active_when_selection',
@@ -440,28 +448,28 @@ actions = ActionList([
     Action(
         id='crop',
         text='&Crop',
-        shortcuts=['Shift+C'],
+        shortcuts=['Ctrl+Alt+Shift+C'],
         callback='on_action_crop',
         group='active_when_single_image',
     ),
     Action(
         id='flip_horizontally',
         text='Flip &Horizontally',
-        shortcuts=['H'],
+        shortcuts=['Alt+Shift+H'],
         callback='on_action_flip_horizontally',
         group='active_when_selection',
     ),
     Action(
         id='flip_vertically',
         text='Flip &Vertically',
-        shortcuts=['V'],
+        shortcuts=['Alt+Shift+V'],
         callback='on_action_flip_vertically',
         group='active_when_selection',
     ),
     Action(
         id='new_scene',
         text='&New Scene',
-        shortcuts=['Ctrl+N'],
+        shortcuts=['Ctrl+K'],
         callback='on_action_new_scene',
     ),
     Action(
@@ -498,13 +506,14 @@ actions = ActionList([
     Action(
         id='reset_crop',
         text='Reset Cro&p',
+        shortcuts=['Ctrl+Shift+C'],
         callback='on_action_reset_crop',
         group='active_when_selection',
     ),
     Action(
         id='reset_transforms',
         text='Reset &All',
-        shortcuts=['R'],
+        shortcuts=['Ctrl+Shift+T'],
         callback='on_action_reset_transforms',
         group='active_when_selection',
     ),
@@ -517,13 +526,13 @@ actions = ActionList([
     Action(
         id='deselect_all',
         text='Deselect &All',
-        shortcuts=['Ctrl+Shift+A'],
+        shortcuts=['Ctrl+Shift+Backspace'],
         callback='on_action_deselect_all',
     ),
     Action(
         id='help',
         text='&Help',
-        shortcuts=['F1', 'Ctrl+H'],
+        shortcuts=['F1'],
         callback='on_action_help',
     ),
     Action(
@@ -561,7 +570,7 @@ actions = ActionList([
     Action(
         id='move_window',
         text='Move &Window',
-        shortcuts=['Ctrl+M'],
+        shortcuts=['Ctrl+Alt+M'],
         callback='on_action_move_window',
     ),
     Action(
@@ -572,8 +581,21 @@ actions = ActionList([
         callback='on_action_fullscreen',
     ),
     Action(
+        id='maximize',
+        text='Ma&ximize',
+        shortcuts=['Ctrl+F'],
+        callback='on_action_maximize',
+    ),
+    Action(
+        id='minimize',
+        text='Mi&nimize',
+        shortcuts=['Ctrl+M'],
+        callback='on_action_minimize',
+    ),
+    Action(
         id='always_on_top',
         text='&Always On Top',
+        shortcuts=['Ctrl+Shift+A'],
         checkable=True,
         checked=False,
         settings='View/always_on_top',
@@ -582,6 +604,7 @@ actions = ActionList([
     Action(
         id='settings',
         text='&Settings',
+        shortcuts=['Ctrl+U'],
         callback='on_action_settings',
     ),
     Action(

@@ -248,6 +248,44 @@ def test_normalize_items(qapp):
             assert item2.pos() == QtCore.QPointF(0, 0)
 
 
+def test_match_before_after_aligns_and_undoes(view):
+    image = QtGui.QImage(
+        100, 50, QtGui.QImage.Format.Format_RGB32)
+    before = XRefPixmapItem(image)
+    before.setPos(20, 30)
+    after = XRefPixmapItem(image)
+    after.setPos(300, 180)
+    after.setScale(2)
+    view.scene.addItem(before)
+    view.scene.addItem(after)
+
+    before_rect = view.scene.itemsBoundingRect(items=[before])
+    after_rect = view.scene.itemsBoundingRect(items=[after])
+    command = commands.MatchBeforeAfter(
+        view.scene, before, after,
+        (after_rect.width() / before_rect.width(), 1),
+        after_rect.center(), 'pair-id')
+
+    command.redo()
+    before_rect = view.scene.itemsBoundingRect(items=[before])
+    after_rect = view.scene.itemsBoundingRect(items=[after])
+    assert before_rect.size() == after_rect.size()
+    assert before_rect.center() == after_rect.center()
+    assert before.before_after_pair_id == 'pair-id'
+    assert before.before_after_role == 'before'
+    assert after.before_after_pair_id == 'pair-id'
+    assert after.before_after_role == 'after'
+    assert after.zValue() > before.zValue()
+
+    command.undo()
+    assert before.pos() == QtCore.QPointF(20, 30)
+    assert after.pos() == QtCore.QPointF(300, 180)
+    assert before.scale() == 1
+    assert after.scale() == 2
+    assert before.before_after_pair_id is None
+    assert after.before_after_pair_id is None
+
+
 def test_flip_items_horizontal(qapp):
     item1 = XRefPixmapItem(QtGui.QImage())
     item1.setRotation(0)

@@ -26,6 +26,7 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 from xref import constants
 from xref.assets import XRefAssets
 from xref.config import CommandlineArgs, XRefSettings, logfile_name
+from xref.file_associations import register_windows_file_associations
 from xref.utils import create_palette_from_dict
 from xref.view import XRefGraphicsView
 from xref.widgets.window_buttons import WindowButtons
@@ -62,9 +63,53 @@ class XRefMainWindow(QtWidgets.QMainWindow):
             if not self.restoreGeometry(geom):
                 self.resize(default_window_size)
         self.setCentralWidget(self.view)
+        app.installEventFilter(self)
         # Minimize/full screen/close buttons in the top right corner
         self.window_buttons = WindowButtons(self)
         self.show()
+
+    def eventFilter(self, watched, event):
+        event_type = event.type()
+        if (event_type == QtCore.QEvent.Type.ContextMenu
+                and isinstance(watched, QtWidgets.QWidget)
+                and watched.window() is self
+                and event.reason()
+                == QtGui.QContextMenuEvent.Reason.Mouse):
+            suppress_at = self.view._suppress_drag_context_menu_at
+            context_pos = event.globalPos()
+            if (suppress_at is not None
+                    and (context_pos - suppress_at).manhattanLength() <= 3):
+                self.view._suppress_drag_context_menu_at = None
+                event.accept()
+                return True
+
+        if event_type in (QtCore.QEvent.Type.KeyPress,
+                          QtCore.QEvent.Type.KeyRelease):
+            if (not event.isAutoRepeat()
+                    and event.key() in (QtCore.Qt.Key.Key_Alt,
+                                        QtCore.Qt.Key.Key_AltGr)):
+                self.view.set_before_after_active(
+                    event_type == QtCore.QEvent.Type.KeyPress)
+        elif event_type == QtCore.QEvent.Type.ApplicationDeactivate:
+            self.view.set_before_after_active(False)
+
+        if (isinstance(watched, QtWidgets.QWidget)
+                and watched.window() is self):
+            if event_type == QtCore.QEvent.Type.MouseMove:
+                self.view.update_before_after_cursor(
+                    event.globalPosition().toPoint())
+            if (event_type == QtCore.QEvent.Type.MouseButtonPress
+                    and event.button() == QtCore.Qt.MouseButton.RightButton):
+                self.view.begin_right_window_drag(event)
+                return True
+            if (event_type == QtCore.QEvent.Type.MouseMove
+                    and self.view.continue_right_window_drag(event)):
+                return True
+            if (event_type == QtCore.QEvent.Type.MouseButtonRelease
+                    and event.button() == QtCore.Qt.MouseButton.RightButton
+                    and self.view.end_right_window_drag(event)):
+                return True
+        return super().eventFilter(watched, event)
 
     # -- Rounded corners (frameless window) --------------------------------
 
@@ -231,6 +276,7 @@ sys.excepthook = handle_uncaught_exception
 
 def main():
     logger.info(f'Starting {constants.APPNAME} version {constants.VERSION}')
+    register_windows_file_associations()
     logger.debug('System: %s', ' '.join(platform.uname()))
     logger.debug('Python: %s', platform.python_version())
     logger.debug('LD_LIBRARY_PATH: %s', os.environ.get('LD_LIBRARY_PATH'))

@@ -18,8 +18,9 @@ import logging
 from PyQt6 import QtCore
 
 from xref import commands
+from xref.config import XRefSettings
 from xref.fileio.errors import XRefFileIOError
-from xref.fileio.image import load_image
+from xref.fileio.image import load_image_preview
 from xref.fileio.media import load_media
 from xref.fileio.sql import SQLiteIO, is_bee_file
 from xref.items import XRefPixmapItem, XRefVideoItem
@@ -62,14 +63,20 @@ def load_images(filenames, pos, scene, worker):
     worker.begin_processing.emit(len(filenames))
     for i, filename in enumerate(filenames):
         logger.info(f'Loading image from file {filename}')
-        img, filename = load_image(filename)
+        preview, filename = load_image_preview(
+            filename, XRefSettings().valueOrDefault(
+                'Items/image_preview_max_dimension'))
         worker.progress.emit(i)
-        if img.isNull():
+        if preview.image.isNull():
             logger.info(f'Could not load file {filename}')
             errors.append(filename)
             continue
 
-        item = XRefPixmapItem(img, filename)
+        item = XRefPixmapItem(
+            preview.image, filename,
+            source_image_bytes=preview.source_bytes,
+            source_image_size=preview.source_size,
+            source_image_format=preview.source_format)
         item.set_pos_center(pos)
         scene.add_item_later({'item': item, 'type': 'pixmap'}, selected=True)
         items.append(item)
@@ -99,7 +106,9 @@ def load_media_items(filenames, pos, scene, worker):
     worker.begin_processing.emit(len(filenames))
     for i, filename in enumerate(filenames):
         logger.info(f'Loading media from file {filename}')
-        result = load_media(filename)
+        result = load_media(
+            filename, XRefSettings().valueOrDefault(
+                'Items/image_preview_max_dimension'))
         worker.progress.emit(i)
         if result is None:
             logger.info(f'Could not load file {filename}')
@@ -108,7 +117,11 @@ def load_media_items(filenames, pos, scene, worker):
 
         mtype, data, resolved = result
         if mtype == 'image':
-            item = XRefPixmapItem(data, resolved)
+            item = XRefPixmapItem(
+                data.image, resolved,
+                source_image_bytes=data.source_bytes,
+                source_image_size=data.source_size,
+                source_image_format=data.source_format)
             itype = 'pixmap'
         elif mtype == 'pdf':
             probe = _probe_pdf(data)
