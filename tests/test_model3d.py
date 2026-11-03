@@ -383,14 +383,15 @@ def test_f3d_native_mouse_controls_preserve_camera(tmp_path):
 @pytest.mark.skipif(not model3d.F3D_ENABLED,
                     reason='F3D backend is enabled on 64-bit Windows')
 @pytest.mark.parametrize(
-    ('axis', 'positive', 'direction', 'view_up'),
+    ('preset', 'direction', 'view_up'),
     [
-        ('x', True, (1, 0, 0), (0, 0, 1)),
-        ('y', False, (0, -1, 0), (0, 0, 1)),
-        ('z', True, (0, 0, 1), (0, 1, 0)),
+        ('top', (0, 0, 1), (0, 1, 0)),
+        ('right', (1, 0, 0), (0, 0, 1)),
+        ('left', (-1, 0, 0), (0, 0, 1)),
+        ('bottom', (0, 0, -1), (0, 1, 0)),
     ])
-def test_f3d_axis_gizmo_sets_aligned_camera(
-        tmp_path, axis, positive, direction, view_up):
+def test_f3d_view_preset_aligns_camera(
+        tmp_path, preset, direction, view_up):
     filename = tmp_path / 'cube.obj'
     filename.write_bytes(CUBE_OBJ)
     renderer = model3d.F3DRenderer(str(filename))
@@ -401,7 +402,7 @@ def test_f3d_axis_gizmo_sets_aligned_camera(
             (before['position'][i] - before['focal_point'][i]) ** 2
             for i in range(3)))
 
-        after = renderer.set_axis_view(axis, positive)
+        after = renderer.set_view_preset(preset)
 
         actual_direction = [
             (after['position'][i] - after['focal_point'][i]) / distance

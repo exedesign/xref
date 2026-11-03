@@ -1002,29 +1002,27 @@ if F3D_ENABLED:
             state.view_angle = float(values['view_angle'])
             self.engine.window.camera.state = state
 
-        def set_axis_view(self, axis, positive=True):
-            axes = {
-                'x': (1.0, 0.0, 0.0),
-                'y': (0.0, 1.0, 0.0),
-                'z': (0.0, 0.0, 1.0),
+        def set_view_preset(self, preset):
+            views = {
+                'top': ((0.0, 0.0, 1.0), (0.0, 1.0, 0.0)),
+                'right': ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+                'left': ((-1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
+                'bottom': ((0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
             }
-            if axis not in axes:
-                raise ValueError(f'Unsupported camera axis: {axis}')
+            if preset not in views:
+                raise ValueError(f'Unsupported camera view preset: {preset}')
             state = self.engine.window.camera.state
             focal_point = tuple(state.focal_point)
-            direction = axes[axis]
-            if not positive:
-                direction = tuple(-value for value in direction)
+            direction, view_up = views[preset]
             distance = math.sqrt(sum(
                 (state.position[index] - focal_point[index]) ** 2
                 for index in range(3)))
             if distance <= 0:
                 raise ValueError('Camera position and focal point coincide')
-            view_up = (0.0, 1.0, 0.0) if axis == 'z' else (0.0, 0.0, 1.0)
             state.position = tuple(
                 focal_point[index] + direction[index] * distance
                 for index in range(3))
-            state.view_up = view_up
+            state.view_up = tuple(view_up)
             self.engine.window.camera.state = state
             return self.camera_state()
 

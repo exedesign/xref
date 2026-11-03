@@ -1834,6 +1834,8 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self._f3d_camera_revision = 0
         self._f3d_interaction_button = None
         self._f3d_interaction_pos = QtCore.QPoint()
+        self._f3d_interaction_start = QtCore.QPoint()
+        self._f3d_drag_axis = None
         self._mesh = mesh
         self._parsed = None
         self._normals = None
@@ -2089,6 +2091,8 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             return
         self._f3d_interaction_button = button
         self._f3d_interaction_pos = QtCore.QPoint(pos)
+        self._f3d_interaction_start = QtCore.QPoint(pos)
+        self._f3d_drag_axis = None
         self._renderer.begin_interaction(button, pos.x(), pos.y())
         self._f3d_camera_revision += 1
         self.update()
@@ -2096,18 +2100,34 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
     def update_f3d_interaction(self, pos):
         if self._renderer is None:
             return
-        self._f3d_interaction_pos = QtCore.QPoint(pos)
-        self._renderer.update_interaction(pos.x(), pos.y())
+        position = self._constrain_f3d_drag(pos)
+        self._f3d_interaction_pos = position
+        self._renderer.update_interaction(position.x(), position.y())
         self._f3d_camera_revision += 1
         self.update()
+
+    def _constrain_f3d_drag(self, pos):
+        pos = QtCore.QPoint(pos)
+        dx = pos.x() - self._f3d_interaction_start.x()
+        dy = pos.y() - self._f3d_interaction_start.y()
+        if self._f3d_drag_axis is None and max(abs(dx), abs(dy)) >= 4:
+            self._f3d_drag_axis = 'horizontal' if abs(dx) >= abs(dy) \
+                else 'vertical'
+        if self._f3d_drag_axis == 'horizontal':
+            return QtCore.QPoint(pos.x(), self._f3d_interaction_start.y())
+        if self._f3d_drag_axis == 'vertical':
+            return QtCore.QPoint(self._f3d_interaction_start.x(), pos.y())
+        return self._f3d_interaction_start
 
     def end_f3d_interaction(self, button, pos):
         if self._renderer is None:
             return
-        self._f3d_interaction_pos = QtCore.QPoint(pos)
+        position = self._constrain_f3d_drag(pos)
+        self._f3d_interaction_pos = position
         self._f3d_camera_state = self._renderer.end_interaction(
-            button, pos.x(), pos.y())
+            button, position.x(), position.y())
         self._f3d_interaction_button = None
+        self._f3d_drag_axis = None
         self._f3d_camera_revision += 1
         self.update()
 
@@ -2120,52 +2140,43 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self._f3d_camera_revision += 1
         self.update()
 
-    def set_f3d_axis_view(self, axis, positive=True):
+    def set_f3d_view_preset(self, preset):
         if self._renderer is None:
             return False
-        self._f3d_camera_state = self._renderer.set_axis_view(axis, positive)
+        self._f3d_camera_state = self._renderer.set_view_preset(preset)
         self._f3d_camera_revision += 1
         self._render_cache = None
         self.update()
         return True
 
-    def f3d_gizmo_geometry(self):
-        margin = self.fixed_length_for_viewport(14)
-        length = self.fixed_length_for_viewport(34)
-        origin = QtCore.QPointF(
-            self._width - margin - length,
-            margin + length)
-        directions = {
-            'x': QtCore.QPointF(1.0, 0.0),
-            'y': QtCore.QPointF(-0.5, -0.866),
-            'z': QtCore.QPointF(-0.5, 0.866),
-        }
-        endpoints = {
-            axis: origin + direction * length
-            for axis, direction in directions.items()
-        }
-        hit_radius = self.fixed_length_for_viewport(12)
-        bounds = QtCore.QRectF(
-            origin.x() - length - hit_radius,
-            origin.y() - length - hit_radius,
-            2 * (length + hit_radius),
-            2 * (length + hit_radius))
-        return origin, endpoints, hit_radius, bounds
+    def f3d_view_preset_buttons(self):
+        margin = self.fixed_length_for_viewport(10)
+        button_width = self.fixed_length_for_viewport(58)
+        button_height = self.fixed_length_for_viewport(26)
+        gap = self.fixed_length_for_viewport(5)
+        labels = (
+            ('top', tr('Top')),
+            ('right', tr('Right')),
+            ('left', tr('Left')),
+            ('bottom', tr('Bottom')),
+        )
+        buttons = {}
+        for index, (preset, label) in enumerate(labels):
+            column = index % 2
+            row = index // 2
+            x = self._width - margin - (2 - column) * button_width \
+                - (1 - column) * gap
+            y = margin + row * (button_height + gap)
+            buttons[preset] = (
+                QtCore.QRectF(x, y, button_width, button_height), label)
+        return buttons
 
-    def f3d_gizmo_axis_at(self, pos):
-        origin, endpoints, hit_radius, bounds = self.f3d_gizmo_geometry()
+    def f3d_view_preset_at(self, pos):
         pos = QtCore.QPointF(pos)
-        if not bounds.contains(pos):
-            return None
-        closest_axis = None
-        closest_distance = hit_radius
-        for axis, endpoint in endpoints.items():
-            distance = math.hypot(
-                endpoint.x() - pos.x(), endpoint.y() - pos.y())
-            if distance <= closest_distance:
-                closest_axis = axis
-                closest_distance = distance
-        return closest_axis
+        for preset, (rect, _label) in self.f3d_view_preset_buttons().items():
+            if rect.contains(pos):
+                return preset
+        return None
 
     def _apply_decimation(self):
         """Re-reduces the parsed mesh with the current quality setting."""
@@ -2432,8 +2443,9 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             self.paint_lock_indicator(painter)
         if self._controls_visible():
             self._paint_controls(painter)
-        if model3d.F3D_ENABLED and self._renderer is not None:
-            self._paint_f3d_gizmo(painter)
+        if (model3d.F3D_ENABLED and self._renderer is not None
+                and (self._hovered or self._f3d_controls_active)):
+            self._paint_f3d_view_presets(painter)
         if self._f3d_controls_active:
             self._paint_f3d_controls_hint(painter)
         self.paint_selectable(painter, option, widget)
@@ -2453,8 +2465,7 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         painter.save()
         painter.setFont(font)
         lines = (
-            tr('Gizmo: click an axis to align; Shift-click for the opposite'),
-            tr('Left-drag: rotate  |  Middle: pan  |  Right: zoom'),
+            tr('Drag horizontally or vertically to rotate'),
             tr('Wheel: zoom  |  Esc: exit'),
         )
         metrics = QtGui.QFontMetricsF(font)
@@ -2481,57 +2492,20 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
                 line)
         painter.restore()
 
-    def _paint_f3d_gizmo(self, painter):
-        origin, endpoints, hit_radius, bounds = self.f3d_gizmo_geometry()
-        margin = self.fixed_length_for_viewport(5)
-        colors = {
-            'x': QtGui.QColor(238, 83, 80),
-            'y': QtGui.QColor(102, 187, 106),
-            'z': QtGui.QColor(66, 165, 245),
-        }
+    def _paint_f3d_view_presets(self, painter):
+        buttons = self.f3d_view_preset_buttons()
+        margin = self.fixed_length_for_viewport(4)
         painter.save()
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QtGui.QColor(20, 22, 27, 205))
-        painter.drawRoundedRect(
-            bounds.adjusted(-margin, -margin, margin, margin),
-            margin * 2, margin * 2)
-        for axis, endpoint in endpoints.items():
-            color = colors[axis]
-            dx = endpoint.x() - origin.x()
-            dy = endpoint.y() - origin.y()
-            angle = math.atan2(dy, dx)
-            arrow_length = self.fixed_length_for_viewport(8)
-            arrow_width = self.fixed_length_for_viewport(4)
-            tip = endpoint
-            base = QtCore.QPointF(
-                tip.x() - arrow_length * math.cos(angle),
-                tip.y() - arrow_length * math.sin(angle))
-            perpendicular = QtCore.QPointF(
-                -math.sin(angle) * arrow_width,
-                math.cos(angle) * arrow_width)
-            painter.setPen(QtGui.QPen(
-                color, self.fixed_length_for_viewport(3)))
-            painter.setBrush(color)
-            painter.drawLine(QtCore.QLineF(origin, base))
-            painter.drawPolygon(QtGui.QPolygonF([
-                tip, base + perpendicular, base - perpendicular]))
-            label_rect = QtCore.QRectF(
-                tip.x() - hit_radius,
-                tip.y() - hit_radius,
-                2 * hit_radius,
-                2 * hit_radius)
-            painter.setPen(QtGui.QColor(255, 255, 255))
-            font = painter.font()
-            font.setBold(True)
-            font.setPointSizeF(max(
-                7.0, self.fixed_length_for_viewport(9)))
-            painter.setFont(font)
-            painter.drawText(label_rect, Qt.AlignmentFlag.AlignCenter,
-                             axis.upper())
-        center_radius = self.fixed_length_for_viewport(4)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QtGui.QColor(245, 245, 245))
-        painter.drawEllipse(origin, center_radius, center_radius)
+        font = painter.font()
+        font.setBold(True)
+        font.setPointSizeF(max(7.0, self.fixed_length_for_viewport(9)))
+        painter.setFont(font)
+        for _preset, (rect, label) in buttons.items():
+            painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 50)))
+            painter.setBrush(QtGui.QColor(24, 27, 34, 220))
+            painter.drawRoundedRect(rect, margin, margin)
+            painter.setPen(QtGui.QColor(245, 245, 245))
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
         painter.restore()
 
     def _paint_model(self, painter, rect):

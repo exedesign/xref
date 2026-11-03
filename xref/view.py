@@ -2142,13 +2142,6 @@ class XRefGraphicsView(MainControlsMixin,
         y = round(local_pos.y() * height / max(1.0, rect.height()))
         return QtCore.QPoint(x, y)
 
-    def is_f3d_control_target_global(self, global_pos):
-        if (not model3d.F3D_ENABLED
-                or self._model_camera_item is None):
-            return False
-        viewport_pos = self.viewport().mapFromGlobal(global_pos)
-        return self.model_item_at(viewport_pos) is self._model_camera_item
-
     def handle_window_resize_press(self, event):
         """Starts a native resize from the outer edge of a frameless window.
 
@@ -2217,8 +2210,8 @@ class XRefGraphicsView(MainControlsMixin,
             if model_item is not None:
                 item_pos = model_item.mapFromScene(
                     self.mapToScene(event.pos()))
-                axis = model_item.f3d_gizmo_axis_at(item_pos)
-                if (axis is not None
+                preset = model_item.f3d_view_preset_at(item_pos)
+                if (preset is not None
                         and model_item.activate_f3d_controls()):
                     if (self._model_camera_item is not None
                             and self._model_camera_item is not model_item):
@@ -2228,9 +2221,7 @@ class XRefGraphicsView(MainControlsMixin,
                     self.active_mode = None
                     self.scene.clearSelection()
                     model_item.setSelected(True)
-                    positive = not bool(
-                        event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-                    model_item.set_f3d_axis_view(axis, positive)
+                    model_item.set_f3d_view_preset(preset)
                     self.setFocus(Qt.FocusReason.MouseFocusReason)
                     event.accept()
                     return
@@ -2242,17 +2233,9 @@ class XRefGraphicsView(MainControlsMixin,
                 self._model_camera_item.deactivate_f3d_controls()
                 self._model_camera_item = None
                 self.active_mode = None
-            elif event.button() in (
-                    Qt.MouseButton.LeftButton,
-                    Qt.MouseButton.MiddleButton,
-                    Qt.MouseButton.RightButton):
-                button = {
-                    Qt.MouseButton.LeftButton: 'left',
-                    Qt.MouseButton.MiddleButton: 'middle',
-                    Qt.MouseButton.RightButton: 'right',
-                }[event.button()]
+            elif event.button() == Qt.MouseButton.LeftButton:
                 self._model_camera_item.begin_f3d_interaction(
-                    button, self.model_item_position(
+                    'left', self.model_item_position(
                         self._model_camera_item, event.pos()))
                 self._model_camera_button = event.button()
                 self.active_mode = self.MODEL_CAMERA_MODE

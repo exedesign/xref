@@ -99,11 +99,12 @@ TRANSLATIONS = {
         'model to return to canvas controls':
             'F3D kontrolleri etkin; tuval kontrollerine dönmek için '
             'Escape tuşuna basın veya modelin dışına tıklayın',
-        'Gizmo: click an axis to align; Shift-click for the opposite':
-            'Gizmo: eksene hizalamak için tıklayın; ters yön için Shift ile '
-            'tıklayın',
-        'Left-drag: rotate  |  Middle: pan  |  Right: zoom':
-            'Sol tuşla sürükle: döndür  |  Orta: kaydır  |  Sağ: yakınlaştır',
+        'Top': 'Üst',
+        'Right': 'Sağ',
+        'Left': 'Sol',
+        'Bottom': 'Alt',
+        'Drag horizontally or vertically to rotate':
+            'Yatay veya dikey sürükleyerek döndürün',
         'Wheel: zoom  |  Esc: exit':
             'Tekerlek: yakınlaştır  |  Esc: çıkış',
         '3D model could not be loaded': '3D model yüklenemedi',
