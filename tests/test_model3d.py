@@ -1,6 +1,7 @@
 """Tests for the 3D model viewer (OBJ/STL/PLY)."""
 
 import os
+import math
 import struct
 from unittest.mock import MagicMock, patch
 
@@ -375,6 +376,39 @@ def test_f3d_native_mouse_controls_preserve_camera(tmp_path):
 
         assert after_interaction != before
         assert renderer.camera_state() == after_interaction
+    finally:
+        renderer.close()
+
+
+@pytest.mark.skipif(not model3d.F3D_ENABLED,
+                    reason='F3D backend is enabled on 64-bit Windows')
+@pytest.mark.parametrize(
+    ('axis', 'positive', 'direction', 'view_up'),
+    [
+        ('x', True, (1, 0, 0), (0, 0, 1)),
+        ('y', False, (0, -1, 0), (0, 0, 1)),
+        ('z', True, (0, 0, 1), (0, 1, 0)),
+    ])
+def test_f3d_axis_gizmo_sets_aligned_camera(
+        tmp_path, axis, positive, direction, view_up):
+    filename = tmp_path / 'cube.obj'
+    filename.write_bytes(CUBE_OBJ)
+    renderer = model3d.F3DRenderer(str(filename))
+    try:
+        renderer.render(96, 96, 30, 20, 1)
+        before = renderer.camera_state()
+        distance = math.sqrt(sum(
+            (before['position'][i] - before['focal_point'][i]) ** 2
+            for i in range(3)))
+
+        after = renderer.set_axis_view(axis, positive)
+
+        actual_direction = [
+            (after['position'][i] - after['focal_point'][i]) / distance
+            for i in range(3)]
+        assert actual_direction == pytest.approx(direction)
+        assert after['focal_point'] == before['focal_point']
+        assert after['view_up'] == pytest.approx(view_up)
     finally:
         renderer.close()
 

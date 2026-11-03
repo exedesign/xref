@@ -24,6 +24,7 @@ software renderer.
 """
 
 import logging
+import math
 import os
 import os.path
 import platform
@@ -1000,6 +1001,32 @@ if F3D_ENABLED:
             state.view_up = tuple(values['view_up'])
             state.view_angle = float(values['view_angle'])
             self.engine.window.camera.state = state
+
+        def set_axis_view(self, axis, positive=True):
+            axes = {
+                'x': (1.0, 0.0, 0.0),
+                'y': (0.0, 1.0, 0.0),
+                'z': (0.0, 0.0, 1.0),
+            }
+            if axis not in axes:
+                raise ValueError(f'Unsupported camera axis: {axis}')
+            state = self.engine.window.camera.state
+            focal_point = tuple(state.focal_point)
+            direction = axes[axis]
+            if not positive:
+                direction = tuple(-value for value in direction)
+            distance = math.sqrt(sum(
+                (state.position[index] - focal_point[index]) ** 2
+                for index in range(3)))
+            if distance <= 0:
+                raise ValueError('Camera position and focal point coincide')
+            view_up = (0.0, 1.0, 0.0) if axis == 'z' else (0.0, 0.0, 1.0)
+            state.position = tuple(
+                focal_point[index] + direction[index] * distance
+                for index in range(3))
+            state.view_up = view_up
+            self.engine.window.camera.state = state
+            return self.camera_state()
 
         def begin_interaction(self, button, x, y):
             interactor = self.engine.interactor

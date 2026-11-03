@@ -1144,7 +1144,8 @@ def test_window_corners_resize_diagonally(view):
     assert view.resize_edges_at(QtCore.QPoint(150, 150)) is None
 
 
-def _mouse_event(event_type, local_pos, global_pos, button, buttons):
+def _mouse_event(event_type, local_pos, global_pos, button, buttons,
+                 modifiers=Qt.KeyboardModifier.NoModifier):
     return QtGui.QMouseEvent(
         event_type,
         QtCore.QPointF(local_pos),
@@ -1152,7 +1153,7 @@ def _mouse_event(event_type, local_pos, global_pos, button, buttons):
         QtCore.QPointF(global_pos),
         button,
         buttons,
-        Qt.KeyboardModifier.NoModifier)
+        modifiers)
 
 
 def test_f3d_controls_activate_only_on_model(view):
@@ -1226,6 +1227,32 @@ def test_f3d_drag_coordinates_continue_beyond_model_bounds(view):
     f3d_pos = view.model_item_position(item, beyond_model)
 
     assert f3d_pos.x() > item._width
+
+
+def test_f3d_gizmo_click_snaps_to_axis(view):
+    item = XRefModelItem(filename='model.glb')
+    item.setPos(40, 40)
+    item._renderer = MagicMock()
+    view.scene.addItem(item)
+    _origin, endpoints, _radius, _bounds = item.f3d_gizmo_geometry()
+    local_pos = endpoints['y']
+    scene_pos = item.mapToScene(local_pos)
+    point = view.mapFromScene(scene_pos)
+    global_pos = view.viewport().mapToGlobal(point)
+    event = _mouse_event(
+        QtCore.QEvent.Type.MouseButtonPress, point, global_pos,
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ShiftModifier)
+
+    with patch('xref.view.model3d.F3D_ENABLED', True), \
+            patch.object(item, 'activate_f3d_controls',
+                         return_value=True), \
+            patch.object(item, 'set_f3d_axis_view') as snap:
+        view.mousePressEvent(event)
+
+    snap.assert_called_once_with('y', False)
+    assert view._model_camera_item is item
+    assert view.active_mode is None
 
 
 def test_right_click_drag_moves_window(view):

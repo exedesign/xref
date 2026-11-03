@@ -20,6 +20,7 @@ text).
 from collections import defaultdict
 from functools import cached_property
 import logging
+import math
 import os.path
 import tempfile
 import weakref
@@ -2119,6 +2120,53 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self._f3d_camera_revision += 1
         self.update()
 
+    def set_f3d_axis_view(self, axis, positive=True):
+        if self._renderer is None:
+            return False
+        self._f3d_camera_state = self._renderer.set_axis_view(axis, positive)
+        self._f3d_camera_revision += 1
+        self._render_cache = None
+        self.update()
+        return True
+
+    def f3d_gizmo_geometry(self):
+        margin = self.fixed_length_for_viewport(14)
+        length = self.fixed_length_for_viewport(34)
+        origin = QtCore.QPointF(
+            self._width - margin - length,
+            margin + length)
+        directions = {
+            'x': QtCore.QPointF(1.0, 0.0),
+            'y': QtCore.QPointF(-0.5, -0.866),
+            'z': QtCore.QPointF(-0.5, 0.866),
+        }
+        endpoints = {
+            axis: origin + direction * length
+            for axis, direction in directions.items()
+        }
+        hit_radius = self.fixed_length_for_viewport(12)
+        bounds = QtCore.QRectF(
+            origin.x() - length - hit_radius,
+            origin.y() - length - hit_radius,
+            2 * (length + hit_radius),
+            2 * (length + hit_radius))
+        return origin, endpoints, hit_radius, bounds
+
+    def f3d_gizmo_axis_at(self, pos):
+        origin, endpoints, hit_radius, bounds = self.f3d_gizmo_geometry()
+        pos = QtCore.QPointF(pos)
+        if not bounds.contains(pos):
+            return None
+        closest_axis = None
+        closest_distance = hit_radius
+        for axis, endpoint in endpoints.items():
+            distance = math.hypot(
+                endpoint.x() - pos.x(), endpoint.y() - pos.y())
+            if distance <= closest_distance:
+                closest_axis = axis
+                closest_distance = distance
+        return closest_axis
+
     def _apply_decimation(self):
         """Re-reduces the parsed mesh with the current quality setting."""
 
@@ -2384,6 +2432,8 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             self.paint_lock_indicator(painter)
         if self._controls_visible():
             self._paint_controls(painter)
+        if model3d.F3D_ENABLED and self._renderer is not None:
+            self._paint_f3d_gizmo(painter)
         if self._f3d_controls_active:
             self._paint_f3d_controls_hint(painter)
         self.paint_selectable(painter, option, widget)
@@ -2403,6 +2453,7 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         painter.save()
         painter.setFont(font)
         lines = (
+            tr('Gizmo: click an axis to align; Shift-click for the opposite'),
             tr('Left-drag: rotate  |  Middle: pan  |  Right: zoom'),
             tr('Wheel: zoom  |  Esc: exit'),
         )
@@ -2411,7 +2462,7 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             self._width - 2 * margin,
             max(metrics.horizontalAdvance(line) for line in lines)
             + 2 * margin)
-        height = 2 * metrics.height() + 3 * margin
+        height = len(lines) * metrics.height() + (len(lines) + 1) * margin
         hint_rect = QtCore.QRectF(
             margin, self._height - height - margin, width, height)
         painter.setPen(Qt.PenStyle.NoPen)
@@ -2428,6 +2479,59 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
                 line_rect,
                 Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                 line)
+        painter.restore()
+
+    def _paint_f3d_gizmo(self, painter):
+        origin, endpoints, hit_radius, bounds = self.f3d_gizmo_geometry()
+        margin = self.fixed_length_for_viewport(5)
+        colors = {
+            'x': QtGui.QColor(238, 83, 80),
+            'y': QtGui.QColor(102, 187, 106),
+            'z': QtGui.QColor(66, 165, 245),
+        }
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(20, 22, 27, 205))
+        painter.drawRoundedRect(
+            bounds.adjusted(-margin, -margin, margin, margin),
+            margin * 2, margin * 2)
+        for axis, endpoint in endpoints.items():
+            color = colors[axis]
+            dx = endpoint.x() - origin.x()
+            dy = endpoint.y() - origin.y()
+            angle = math.atan2(dy, dx)
+            arrow_length = self.fixed_length_for_viewport(8)
+            arrow_width = self.fixed_length_for_viewport(4)
+            tip = endpoint
+            base = QtCore.QPointF(
+                tip.x() - arrow_length * math.cos(angle),
+                tip.y() - arrow_length * math.sin(angle))
+            perpendicular = QtCore.QPointF(
+                -math.sin(angle) * arrow_width,
+                math.cos(angle) * arrow_width)
+            painter.setPen(QtGui.QPen(
+                color, self.fixed_length_for_viewport(3)))
+            painter.setBrush(color)
+            painter.drawLine(QtCore.QLineF(origin, base))
+            painter.drawPolygon(QtGui.QPolygonF([
+                tip, base + perpendicular, base - perpendicular]))
+            label_rect = QtCore.QRectF(
+                tip.x() - hit_radius,
+                tip.y() - hit_radius,
+                2 * hit_radius,
+                2 * hit_radius)
+            painter.setPen(QtGui.QColor(255, 255, 255))
+            font = painter.font()
+            font.setBold(True)
+            font.setPointSizeF(max(
+                7.0, self.fixed_length_for_viewport(9)))
+            painter.setFont(font)
+            painter.drawText(label_rect, Qt.AlignmentFlag.AlignCenter,
+                             axis.upper())
+        center_radius = self.fixed_length_for_viewport(4)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(245, 245, 245))
+        painter.drawEllipse(origin, center_radius, center_radius)
         painter.restore()
 
     def _paint_model(self, painter, rect):

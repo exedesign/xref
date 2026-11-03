@@ -99,6 +99,9 @@ TRANSLATIONS = {
         'model to return to canvas controls':
             'F3D kontrolleri etkin; tuval kontrollerine dönmek için '
             'Escape tuşuna basın veya modelin dışına tıklayın',
+        'Gizmo: click an axis to align; Shift-click for the opposite':
+            'Gizmo: eksene hizalamak için tıklayın; ters yön için Shift ile '
+            'tıklayın',
         'Left-drag: rotate  |  Middle: pan  |  Right: zoom':
             'Sol tuşla sürükle: döndür  |  Orta: kaydır  |  Sağ: yakınlaştır',
         'Wheel: zoom  |  Esc: exit':

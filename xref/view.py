@@ -2212,6 +2212,29 @@ class XRefGraphicsView(MainControlsMixin,
         return True
 
     def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            model_item = self.model_item_at(event.pos())
+            if model_item is not None:
+                item_pos = model_item.mapFromScene(
+                    self.mapToScene(event.pos()))
+                axis = model_item.f3d_gizmo_axis_at(item_pos)
+                if (axis is not None
+                        and model_item.activate_f3d_controls()):
+                    if (self._model_camera_item is not None
+                            and self._model_camera_item is not model_item):
+                        self._model_camera_item.deactivate_f3d_controls()
+                    self._model_camera_item = model_item
+                    self._model_camera_button = None
+                    self.active_mode = None
+                    self.scene.clearSelection()
+                    model_item.setSelected(True)
+                    positive = not bool(
+                        event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                    model_item.set_f3d_axis_view(axis, positive)
+                    self.setFocus(Qt.FocusReason.MouseFocusReason)
+                    event.accept()
+                    return
+
         if (model3d.F3D_ENABLED
                 and self._model_camera_item is not None):
             item = self.model_item_at(event.pos())
