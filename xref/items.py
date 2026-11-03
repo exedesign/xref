@@ -2272,8 +2272,8 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             return
         if self._f3d_controls_active:
             self.setToolTip(
-                tr('F3D controls active; click the model again or press '
-                   'Escape to return to canvas controls'))
+                tr('F3D controls active; press Escape or click outside the '
+                   'model to return to canvas controls'))
             return
         if self._frame_locked:
             self.setToolTip(tr('Click to rotate the model again'))

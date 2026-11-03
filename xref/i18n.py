@@ -95,10 +95,10 @@ TRANSLATIONS = {
         'Click to lock this view': 'Bu görünümü kilitlemek için tıklayın',
         'Click to rotate the model again':
             'Modeli tekrar döndürmek için tıklayın',
-        'F3D controls active; click the model again or press '
-        'Escape to return to canvas controls':
+        'F3D controls active; press Escape or click outside the '
+        'model to return to canvas controls':
             'F3D kontrolleri etkin; tuval kontrollerine dönmek için '
-            'modele tekrar tıklayın veya Escape tuşuna basın',
+            'Escape tuşuna basın veya modelin dışına tıklayın',
         '3D model could not be loaded': '3D model yüklenemedi',
         'Click to lock this frame': 'Bu kareyi kilitlemek için tıklayın',
         'Click to browse the frames again':
