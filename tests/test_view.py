@@ -1157,7 +1157,7 @@ def _mouse_event(event_type, local_pos, global_pos, button, buttons,
         modifiers)
 
 
-def test_f3d_controls_activate_only_on_model(view):
+def test_f3d_left_drag_orbits_only_the_model(view):
     item = XRefModelItem(filename='model.glb')
     item.setPos(40, 40)
     item._renderer = MagicMock()
@@ -1169,15 +1169,14 @@ def test_f3d_controls_activate_only_on_model(view):
     with patch.object(model3d, 'F3D_ENABLED', True), \
             patch.object(item, 'activate_f3d_controls',
                          return_value=True), \
-            patch.object(item, 'begin_f3d_interaction') as begin, \
-            patch.object(item, 'update_f3d_interaction') as update, \
-            patch.object(item, 'end_f3d_interaction') as end:
+            patch.object(item, 'begin_f3d_orbit') as begin, \
+            patch.object(item, 'update_f3d_orbit') as update:
         view.mousePressEvent(_mouse_event(
             QtCore.QEvent.Type.MouseButtonPress, point, global_pos,
             Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton))
         assert view._model_camera_item is item
-        begin.assert_called_once_with(
-            'left', view.model_item_position(item, point))
+        assert view._model_camera_drag_mode == 'orbit'
+        begin.assert_called_once_with(view.model_item_position(item, point))
 
         moved = point + QtCore.QPoint(12, 8)
         view.mouseMoveEvent(_mouse_event(
@@ -1191,18 +1190,129 @@ def test_f3d_controls_activate_only_on_model(view):
             QtCore.QEvent.Type.MouseButtonRelease, moved,
             view.viewport().mapToGlobal(moved),
             Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton))
-        end.assert_called_once_with(
-            'left', view.model_item_position(item, moved))
+        update.assert_called_with(view.model_item_position(item, moved))
         assert view._model_camera_item is item
         assert view.active_mode is None
+        assert view._model_camera_drag_mode is None
 
 
-def test_f3d_right_drag_keeps_default_window_behavior(view):
+def test_f3d_right_drag_pans_only_the_model(view):
     item = XRefModelItem(filename='model.glb')
     item.setPos(40, 40)
     item._renderer = MagicMock()
     view.scene.addItem(item)
-    view._model_camera_item = item
+    point = view.mapFromScene(
+        item.mapToScene(item.bounding_rect_unselected().center()))
+    global_pos = view.viewport().mapToGlobal(point)
+    with patch.object(model3d, 'F3D_ENABLED', True), \
+            patch.object(item, 'activate_f3d_controls', return_value=True), \
+            patch.object(item, 'begin_f3d_pan') as begin_pan, \
+            patch.object(item, 'update_f3d_pan') as update_pan:
+        view.mousePressEvent(_mouse_event(
+            QtCore.QEvent.Type.MouseButtonPress, point, global_pos,
+            Qt.MouseButton.RightButton, Qt.MouseButton.RightButton))
+        assert view._model_camera_drag_mode == 'pan'
+        begin_pan.assert_called_once_with(
+            view.model_item_position(item, point))
+
+        moved = point + QtCore.QPoint(12, 8)
+        view.mouseMoveEvent(_mouse_event(
+            QtCore.QEvent.Type.MouseMove, moved,
+            view.viewport().mapToGlobal(moved),
+            Qt.MouseButton.NoButton, Qt.MouseButton.RightButton))
+        update_pan.assert_called_once_with(
+            view.model_item_position(item, moved))
+
+        view.mouseReleaseEvent(_mouse_event(
+            QtCore.QEvent.Type.MouseButtonRelease, moved,
+            view.viewport().mapToGlobal(moved),
+            Qt.MouseButton.RightButton, Qt.MouseButton.NoButton))
+        assert view.active_mode is None
+
+
+def test_f3d_shift_left_drag_pans_like_orbit_controls(view):
+    item = XRefModelItem(filename='model.glb')
+    item.setPos(40, 40)
+    item._renderer = MagicMock()
+    view.scene.addItem(item)
+    point = view.mapFromScene(
+        item.mapToScene(item.bounding_rect_unselected().center()))
+    global_pos = view.viewport().mapToGlobal(point)
+
+    with patch('xref.view.model3d.F3D_ENABLED', True), \
+            patch.object(item, 'activate_f3d_controls',
+                         return_value=True), \
+            patch.object(item, 'begin_f3d_pan') as begin_pan:
+        view.mousePressEvent(_mouse_event(
+            QtCore.QEvent.Type.MouseButtonPress, point, global_pos,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.ShiftModifier))
+
+    assert view._model_camera_drag_mode == 'pan'
+    begin_pan.assert_called_once_with(view.model_item_position(item, point))
+
+
+def test_f3d_middle_drag_dollies_only_the_model(view):
+    item = XRefModelItem(filename='model.glb')
+    item.setPos(40, 40)
+    item._renderer = MagicMock()
+    view.scene.addItem(item)
+    point = view.mapFromScene(
+        item.mapToScene(item.bounding_rect_unselected().center()))
+    global_pos = view.viewport().mapToGlobal(point)
+
+    with patch('xref.view.model3d.F3D_ENABLED', True), \
+            patch.object(item, 'activate_f3d_controls',
+                         return_value=True), \
+            patch.object(item, 'begin_f3d_dolly') as begin, \
+            patch.object(item, 'update_f3d_dolly') as update:
+        view.mousePressEvent(_mouse_event(
+            QtCore.QEvent.Type.MouseButtonPress, point, global_pos,
+            Qt.MouseButton.MiddleButton, Qt.MouseButton.MiddleButton))
+        assert view._model_camera_drag_mode == 'dolly'
+        begin.assert_called_once_with(view.model_item_position(item, point))
+
+        moved = point + QtCore.QPoint(0, 12)
+        view.mouseMoveEvent(_mouse_event(
+            QtCore.QEvent.Type.MouseMove, moved,
+            view.viewport().mapToGlobal(moved),
+            Qt.MouseButton.NoButton, Qt.MouseButton.MiddleButton))
+        update.assert_called_once_with(view.model_item_position(item, moved))
+
+        view.mouseReleaseEvent(_mouse_event(
+            QtCore.QEvent.Type.MouseButtonRelease, moved,
+            view.viewport().mapToGlobal(moved),
+            Qt.MouseButton.MiddleButton, Qt.MouseButton.NoButton))
+        update.assert_called_with(view.model_item_position(item, moved))
+
+
+def test_f3d_mouse_wheel_uses_orbit_controls_zoom_steps(view):
+    item = XRefModelItem(filename='model.glb')
+    item.setPos(40, 40)
+    item._renderer = MagicMock()
+    view.scene.addItem(item)
+    point = view.mapFromScene(
+        item.mapToScene(item.bounding_rect_unselected().center()))
+    event = MagicMock()
+    event.position.return_value = QtCore.QPointF(point)
+    event.angleDelta.return_value = QtCore.QPoint(0, 60)
+
+    with patch('xref.view.model3d.F3D_ENABLED', True), \
+            patch.object(item, 'activate_f3d_controls',
+                         return_value=True), \
+            patch.object(item, 'scroll_f3d_interaction') as scroll:
+        view.wheelEvent(event)
+
+    scroll.assert_called_once_with(
+        'forward', view.model_item_position(item, point), 0.5)
+    event.accept.assert_called_once_with()
+
+
+def test_f3d_right_drag_does_not_move_window_over_model(view):
+    item = XRefModelItem(filename='model.glb')
+    item.setPos(40, 40)
+    item._renderer = MagicMock()
+    view.scene.addItem(item)
     point = view.mapFromScene(
         item.mapToScene(item.bounding_rect_unselected().center()))
     global_pos = view.viewport().mapToGlobal(point)
@@ -1213,8 +1323,8 @@ def test_f3d_right_drag_keeps_default_window_behavior(view):
     with patch('xref.view.model3d.F3D_ENABLED', True):
         filtered = view.parent.eventFilter(view.viewport(), event)
 
-    assert filtered is True
-    assert view._right_window_drag_start == global_pos
+    assert filtered is False
+    assert view._right_window_drag_start is None
 
 
 def test_f3d_drag_coordinates_continue_beyond_model_bounds(view):
@@ -1230,29 +1340,30 @@ def test_f3d_drag_coordinates_continue_beyond_model_bounds(view):
     assert f3d_pos.x() > item._width
 
 
-@pytest.mark.parametrize(
-    ('end', 'expected'),
-    [
-        (QtCore.QPoint(100, 70), (100, 20)),
-        (QtCore.QPoint(70, 100), (20, 100)),
-    ])
-def test_f3d_drag_locks_to_one_rotation_axis(view, end, expected):
+def test_f3d_orbit_drag_uses_free_trackball(view):
     item = XRefModelItem(filename='model.glb')
     item._renderer = MagicMock()
     start = QtCore.QPoint(20, 20)
-    item.begin_f3d_interaction('left', start)
+    item.begin_f3d_orbit(start)
+    end = QtCore.QPoint(100, 70)
 
-    item.update_f3d_interaction(end)
+    item.update_f3d_orbit(end)
 
-    item._renderer.update_interaction.assert_called_once_with(*expected)
+    item._renderer.orbit.assert_called_once_with(
+        (20, 20), (100, 70), item._width, item._height)
 
 
-def test_f3d_preset_button_snaps_camera(view):
+def test_f3d_axis_gizmo_snaps_camera(view):
     item = XRefModelItem(filename='model.glb')
     item.setPos(40, 40)
     item._renderer = MagicMock()
+    item._renderer.camera_state.return_value = {
+        'position': [1.0, -1.0, 1.0],
+        'focal_point': [0.0, 0.0, 0.0],
+        'view_up': [0.0, 0.0, 1.0],
+    }
     view.scene.addItem(item)
-    local_pos = item.f3d_view_preset_buttons()['left'][0].center()
+    local_pos = item.f3d_gizmo_geometry()[1][('x', True)]
     scene_pos = item.mapToScene(local_pos)
     point = view.mapFromScene(scene_pos)
     global_pos = view.viewport().mapToGlobal(point)
@@ -1263,12 +1374,34 @@ def test_f3d_preset_button_snaps_camera(view):
     with patch('xref.view.model3d.F3D_ENABLED', True), \
             patch.object(item, 'activate_f3d_controls',
                          return_value=True), \
-            patch.object(item, 'set_f3d_view_preset') as snap:
+            patch.object(item, 'set_f3d_axis_view') as snap:
         view.mousePressEvent(event)
 
-    snap.assert_called_once_with('left')
+    snap.assert_called_once_with('x', True)
     assert view._model_camera_item is item
     assert view.active_mode is None
+
+
+def test_f3d_axis_gizmo_stays_angled_and_all_axes_are_selectable(view):
+    item = XRefModelItem(filename='model.glb')
+    item._renderer = MagicMock()
+    item._renderer.camera_state.return_value = {
+        'position': [1.0, -1.0, 1.0],
+        'focal_point': [0.0, 0.0, 0.0],
+        'view_up': [0.0, 0.0, 1.0],
+    }
+
+    first = item.f3d_gizmo_geometry()[1][('x', True)]
+    item._renderer.camera_state.return_value = {
+        'position': [0.0, 0.0, -1.0],
+        'focal_point': [0.0, 0.0, 0.0],
+        'view_up': [0.0, 1.0, 0.0],
+    }
+    _, endpoints, _, _, _ = item.f3d_gizmo_geometry()
+
+    assert first == endpoints[('x', True)]
+    for axis, endpoint in endpoints.items():
+        assert item.f3d_gizmo_axis_at(endpoint) == axis
 
 
 def test_right_click_drag_moves_window(view):

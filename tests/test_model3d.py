@@ -90,6 +90,35 @@ def test_model_formats_are_recognised():
     assert media_type('e.png') == 'image'
 
 
+@pytest.mark.parametrize(
+    ('source_axis', 'target_axis', 'expected'),
+    [
+        ('X', 'Z', [-3, 2, 1, -6, 5, 4]),
+        ('X', 'Y', [-2, 1, 3, -5, 4, 6]),
+        ('Y', 'Z', [1, -3, 2, 4, -6, 5]),
+        ('Y', 'X', [2, -1, 3, 5, -4, 6]),
+        ('Z', 'Y', [1, 3, -2, 4, 6, -5]),
+        ('Z', 'Z', [1, 2, 3, 4, 5, 6]),
+    ])
+def test_convert_mesh_up_axis(source_axis, target_axis, expected):
+    mesh = {'vertices': [1, 2, 3, 4, 5, 6],
+            'triangles': [(0, 1, 0)]}
+
+    aligned = model3d.convert_mesh_up_axis(
+        mesh, source_axis, target_axis)
+
+    assert aligned['vertices'] == expected
+    assert aligned['triangles'] == mesh['triangles']
+    if source_axis == target_axis:
+        assert aligned is mesh
+
+
+def test_convert_mesh_up_axis_rejects_unknown_axis():
+    with pytest.raises(ValueError, match='Unsupported model up axis'):
+        model3d.convert_mesh_up_axis(
+            {'vertices': [], 'triangles': []}, 'Y', 'Q')
+
+
 # -- Parsers ---------------------------------------------------------------
 
 def test_obj_parser():
@@ -360,6 +389,68 @@ def test_f3d_renderer_renders_and_rotates_model(tmp_path):
 
 @pytest.mark.skipif(not model3d.F3D_ENABLED,
                     reason='F3D backend is enabled on 64-bit Windows')
+def test_f3d_renderer_applies_initial_view_preset(tmp_path):
+    filename = tmp_path / 'cube.obj'
+    filename.write_bytes(CUBE_OBJ)
+    renderer = model3d.F3DRenderer(
+        str(filename), initial_view_preset='top')
+    try:
+        renderer.render(96, 96, 30, 20, 1)
+        camera = renderer.camera_state()
+        direction = [
+            camera['position'][index] - camera['focal_point'][index]
+            for index in range(3)]
+        length = math.sqrt(sum(value ** 2 for value in direction))
+        assert [value / length for value in direction] == pytest.approx(
+            (0, 0, 1))
+        assert camera['view_up'] == pytest.approx((0, 1, 0))
+    finally:
+        renderer.close()
+
+
+@pytest.mark.skipif(not model3d.F3D_ENABLED,
+                    reason='F3D backend is enabled on 64-bit Windows')
+def test_f3d_renderer_applies_scene_up_axis(tmp_path):
+    filename = tmp_path / 'cube.obj'
+    filename.write_bytes(CUBE_OBJ)
+    renderer = model3d.F3DRenderer(str(filename), up_axis='X')
+    try:
+        assert renderer.engine.options['scene.up_direction'] == [
+            1.0, 0.0, 0.0]
+        renderer.render(96, 96, 30, 20, 1)
+        camera = renderer.set_view_preset('top')
+        direction = [
+            camera['position'][index] - camera['focal_point'][index]
+            for index in range(3)]
+        length = math.sqrt(sum(value ** 2 for value in direction))
+        assert [value / length for value in direction] == pytest.approx(
+            (1, 0, 0))
+    finally:
+        renderer.close()
+
+
+@pytest.mark.skipif(not model3d.F3D_ENABLED,
+                    reason='F3D backend is enabled on 64-bit Windows')
+def test_glb_import_rotates_standard_y_up_to_selected_axis():
+    glb, positions = make_glb()
+    item = XRefModelItem(
+        filename='triangle.glb', model_up_axis='Z')
+    item.model_bytes = glb
+    try:
+        assert item._ensure_mesh()
+        expected = []
+        for index in range(0, len(positions), 3):
+            x, y, z = positions[index:index + 3]
+            expected.extend((x, -z, y))
+        assert item._parsed['vertices'] == expected
+        assert item._renderer._up_axis == 'Z'
+    finally:
+        if item._renderer is not None:
+            item._renderer.close()
+
+
+@pytest.mark.skipif(not model3d.F3D_ENABLED,
+                    reason='F3D backend is enabled on 64-bit Windows')
 def test_f3d_native_mouse_controls_preserve_camera(tmp_path):
     filename = tmp_path / 'cube.obj'
     filename.write_bytes(CUBE_OBJ)
@@ -383,18 +474,21 @@ def test_f3d_native_mouse_controls_preserve_camera(tmp_path):
 @pytest.mark.skipif(not model3d.F3D_ENABLED,
                     reason='F3D backend is enabled on 64-bit Windows')
 @pytest.mark.parametrize(
-    ('preset', 'direction', 'view_up'),
+    ('up_axis', 'axis', 'positive', 'direction', 'view_up'),
     [
-        ('top', (0, 0, 1), (0, 1, 0)),
-        ('right', (1, 0, 0), (0, 0, 1)),
-        ('left', (-1, 0, 0), (0, 0, 1)),
-        ('bottom', (0, 0, -1), (0, 1, 0)),
+        ('Z', 'x', True, (1, 0, 0), (0, 0, 1)),
+        ('Z', 'x', False, (-1, 0, 0), (0, 0, 1)),
+        ('Z', 'y', True, (0, 1, 0), (0, 0, 1)),
+        ('Z', 'z', True, (0, 0, 1), (0, 1, 0)),
+        ('Z', 'z', False, (0, 0, -1), (0, 1, 0)),
+        ('Y', 'y', True, (0, 1, 0), (0, 0, 1)),
+        ('X', 'x', True, (1, 0, 0), (0, 1, 0)),
     ])
-def test_f3d_view_preset_aligns_camera(
-        tmp_path, preset, direction, view_up):
+def test_f3d_axis_gizmo_aligns_camera(
+        tmp_path, up_axis, axis, positive, direction, view_up):
     filename = tmp_path / 'cube.obj'
     filename.write_bytes(CUBE_OBJ)
-    renderer = model3d.F3DRenderer(str(filename))
+    renderer = model3d.F3DRenderer(str(filename), up_axis=up_axis)
     try:
         renderer.render(96, 96, 30, 20, 1)
         before = renderer.camera_state()
@@ -402,7 +496,7 @@ def test_f3d_view_preset_aligns_camera(
             (before['position'][i] - before['focal_point'][i]) ** 2
             for i in range(3)))
 
-        after = renderer.set_view_preset(preset)
+        after = renderer.set_axis_view(axis, positive)
 
         actual_direction = [
             (after['position'][i] - after['focal_point'][i]) / distance
@@ -410,6 +504,69 @@ def test_f3d_view_preset_aligns_camera(
         assert actual_direction == pytest.approx(direction)
         assert after['focal_point'] == before['focal_point']
         assert after['view_up'] == pytest.approx(view_up)
+    finally:
+        renderer.close()
+
+
+@pytest.mark.skipif(not model3d.F3D_ENABLED,
+                    reason='F3D backend is enabled on 64-bit Windows')
+def test_f3d_pan_moves_camera_without_changing_orientation(tmp_path):
+    filename = tmp_path / 'cube.obj'
+    filename.write_bytes(CUBE_OBJ)
+    renderer = model3d.F3DRenderer(str(filename), up_axis='Z')
+    try:
+        renderer.render(96, 96, 30, 20, 1)
+        before = renderer.camera_state()
+
+        after = renderer.pan(12, -8, 96)
+
+        before_direction = [
+            before['position'][i] - before['focal_point'][i]
+            for i in range(3)]
+        after_direction = [
+            after['position'][i] - after['focal_point'][i]
+            for i in range(3)]
+        assert after['focal_point'] != before['focal_point']
+        assert after_direction == pytest.approx(before_direction)
+    finally:
+        renderer.close()
+
+
+@pytest.mark.skipif(not model3d.F3D_ENABLED,
+                    reason='F3D backend is enabled on 64-bit Windows')
+def test_f3d_orbit_matches_orbit_controls_sensitivity_and_damping(tmp_path):
+    filename = tmp_path / 'cube.obj'
+    filename.write_bytes(CUBE_OBJ)
+    renderer = model3d.F3DRenderer(str(filename), up_axis='Z')
+    try:
+        renderer.render(96, 96, 30, 20, 1)
+        renderer.set_axis_view('y', True)
+        initial = renderer.camera_state()
+        renderer.orbit((48, 48), (48, 72), 96, 96)
+        assert renderer.camera_state() == initial
+
+        first, pending = renderer.advance_controls()
+        assert pending
+        assert first['position'] != pytest.approx(initial['position'])
+        distance = math.sqrt(sum(
+            (first['position'][index] - first['focal_point'][index]) ** 2
+            for index in range(3)))
+        initial_distance = math.sqrt(sum(
+            (initial['position'][index] - initial['focal_point'][index]) ** 2
+            for index in range(3)))
+        assert distance == pytest.approx(initial_distance)
+        assert abs(first['position'][2] - initial['position'][2]) < (
+            initial_distance * 0.1)
+
+        for _ in range(300):
+            final, pending = renderer.advance_controls()
+            if not pending:
+                break
+        assert not pending
+        direction = [
+            (final['position'][index] - final['focal_point'][index])
+            / initial_distance for index in range(3)]
+        assert direction == pytest.approx((0, 0, 1), abs=1e-4)
     finally:
         renderer.close()
 
@@ -613,6 +770,39 @@ def test_item_renders_shaded_triangles(view, qapp):
     assert image.pixelColor(0, 0).red() == 0
 
 
+def test_f3d_gizmo_stays_visible_when_model_is_not_hovered(view):
+    item = make_model_item(view)
+    item._renderer = MagicMock()
+    item._hovered = False
+    item._f3d_controls_active = False
+    image = QtGui.QImage(480, 480, QtGui.QImage.Format.Format_ARGB32)
+    image.fill(QtGui.QColor(0, 0, 0))
+    painter = QtGui.QPainter(image)
+
+    with patch.object(model3d, 'F3D_ENABLED', True), \
+            patch.object(item, '_paint_model'), \
+            patch.object(item, '_paint_f3d_gizmo') as paint_gizmo:
+        item.paint(painter, None, None)
+    painter.end()
+
+    paint_gizmo.assert_called_once()
+
+
+def test_f3d_damping_timer_is_created_on_ui_thread(view, qapp):
+    item = XRefModelItem(filename='model.glb')
+    item._renderer = MagicMock()
+    item._ensure_mesh = MagicMock(return_value=True)
+
+    assert item._f3d_controls_timer is None
+
+    with patch.object(model3d, 'F3D_ENABLED', True):
+        assert item.activate_f3d_controls()
+
+    assert item._f3d_controls_timer.thread() == qapp.thread()
+    item.deactivate_f3d_controls()
+    assert not item._f3d_controls_timer.isActive()
+
+
 def test_rotation_changes_the_projection(view, qapp):
     item = make_model_item(view)
     first = render(item)
@@ -621,7 +811,7 @@ def test_rotation_changes_the_projection(view, qapp):
     assert first != second
 
 
-def test_middle_drag_orbits_model(view):
+def test_left_drag_orbits_model_like_orbit_controls(view):
     item = make_model_item(view)
     original_view = item.current_view()
     scene_pos = item.mapToScene(item.bounding_rect_unselected().center())
@@ -637,20 +827,21 @@ def test_middle_drag_orbits_model(view):
 
     view.mousePressEvent(mouse_event(
         QtCore.QEvent.Type.MouseButtonPress, start,
-        QtCore.Qt.MouseButton.MiddleButton,
-        QtCore.Qt.MouseButton.MiddleButton))
+        QtCore.Qt.MouseButton.LeftButton,
+        QtCore.Qt.MouseButton.LeftButton))
     view.mouseMoveEvent(mouse_event(
         QtCore.QEvent.Type.MouseMove, end,
         QtCore.Qt.MouseButton.NoButton,
-        QtCore.Qt.MouseButton.MiddleButton))
+        QtCore.Qt.MouseButton.LeftButton))
     view.mouseReleaseEvent(mouse_event(
         QtCore.QEvent.Type.MouseButtonRelease, end,
-        QtCore.Qt.MouseButton.MiddleButton,
+        QtCore.Qt.MouseButton.LeftButton,
         QtCore.Qt.MouseButton.NoButton))
 
     assert view.active_mode is None
     assert item.current_view() == pytest.approx(
-        (original_view[0] + 12, original_view[1] - 6, original_view[2]))
+        (original_view[0] + 15, original_view[1] + 7.5,
+         original_view[2]))
 
 
 def test_view_is_saved_and_restored(view):

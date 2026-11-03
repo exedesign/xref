@@ -209,6 +209,15 @@ class XRefSettings(QtCore.QSettings):
             'cast': int,
             'validate': lambda x: 0 <= x <= 1000,
         },
+        'Items/model_default_view': {
+            'default': 'perspective',
+            'validate': lambda x: x in (
+                'perspective', 'top', 'right', 'left', 'bottom'),
+        },
+        'Items/model_up_axis': {
+            'default': 'Z',
+            'validate': lambda x: x in ('X', 'Y', 'Z'),
+        },
         'View/window_corner_radius': {
             'default': 8,
             'cast': int,

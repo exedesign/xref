@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from PyQt6 import QtCore
 
 from xref import fileio
-from xref.items import XRefPixmapItem, XRefVideoItem
+from xref.items import XRefModelItem, XRefPixmapItem, XRefVideoItem
 from ..utils import queue2list
 
 
@@ -46,6 +46,26 @@ def test_load_media_items_video(view, worker, videofilename):
     # could decode the file in this environment; the fallback is the
     # default size with an unknown duration.
     assert item.size in ((32, 32), XRefVideoItem.DEFAULT_SIZE)
+
+
+def test_load_media_items_applies_default_model_view(view, worker):
+    view.scene.undo_stack = MagicMock()
+    view.settings.setValue('Items/model_default_view', 'right')
+    view.settings.setValue('Items/model_up_axis', 'X')
+    with patch('xref.fileio.load_media',
+               return_value=('model', 'model.obj', 'model.obj')):
+        fileio.load_media_items(
+            ['model.obj'], QtCore.QPointF(5, 6), view.scene, worker)
+
+    itemdata = queue2list(view.scene.items_to_add)
+    item = itemdata[0][0]['item']
+    assert isinstance(item, XRefModelItem)
+    assert item._current_yaw == 90
+    assert item._current_pitch == 0
+    assert item._initial_view_preset == 'right'
+    assert item._model_up_axis == 'X'
+    view.settings.setValue('Items/model_default_view', 'perspective')
+    view.settings.setValue('Items/model_up_axis', 'Z')
 
 
 def test_load_media_items_mixed(view, worker, imgfilename3x3,

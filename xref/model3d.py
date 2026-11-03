@@ -122,6 +122,43 @@ def parse_model(data, filename=None, source_path=None):
     raise ValueError('Unsupported 3D format')
 
 
+def convert_mesh_up_axis(mesh, source_axis, target_axis):
+    """Rotate mesh coordinates from one positive up axis to another."""
+
+    transforms = {
+        ('X', 'X'): lambda x, y, z: (x, y, z),
+        ('X', 'Y'): lambda x, y, z: (-y, x, z),
+        ('X', 'Z'): lambda x, y, z: (-z, y, x),
+        ('Y', 'X'): lambda x, y, z: (y, -x, z),
+        ('Y', 'Y'): lambda x, y, z: (x, y, z),
+        ('Y', 'Z'): lambda x, y, z: (x, -z, y),
+        ('Z', 'X'): lambda x, y, z: (z, y, -x),
+        ('Z', 'Y'): lambda x, y, z: (x, z, -y),
+        ('Z', 'Z'): lambda x, y, z: (x, y, z),
+    }
+    try:
+        transform = transforms[(source_axis, target_axis)]
+    except KeyError:
+        raise ValueError('Unsupported model up axis conversion: '
+                         f'{source_axis} to {target_axis}') from None
+    vertices = mesh['vertices']
+    if source_axis == target_axis:
+        return mesh
+    aligned_vertices = []
+    for index in range(0, len(vertices), 3):
+        aligned_vertices.extend(transform(*vertices[index:index + 3]))
+    return {
+        'vertices': aligned_vertices,
+        'triangles': mesh['triangles'],
+    }
+
+
+def align_mesh_up_axis(mesh, up_axis):
+    """Rotate a mesh so its selected positive axis points along +Z."""
+
+    return convert_mesh_up_axis(mesh, up_axis, 'Z')
+
+
 def _decode(data):
     try:
         return data.decode('utf-8')
@@ -926,10 +963,11 @@ if F3D_ENABLED:
         """Render a model with a persistent offscreen libf3d engine."""
 
         def __init__(self, filename, temporary_file=None,
-                     camera_state=None):
+                     camera_state=None, initial_view_preset=None,
+                     up_axis=None):
             f3d.Log.set_verbose_level(f3d.Log.QUIET)
             engine = f3d.Engine.create(True)
-            engine.options.update({
+            options = {
                 'ui.axis': False,
                 'ui.fps': False,
                 'ui.filename': False,
@@ -944,7 +982,17 @@ if F3D_ENABLED:
                 'render.effect.antialiasing.mode': 'fxaa',
                 'model.coloring': 'scivis',
                 'model.material.roughness': 1.0,
-            })
+            }
+            if up_axis is not None:
+                up_directions = {
+                    'X': [1.0, 0.0, 0.0],
+                    'Y': [0.0, 1.0, 0.0],
+                    'Z': [0.0, 0.0, 1.0],
+                }
+                if up_axis not in up_directions:
+                    raise ValueError(f'Unsupported model up axis: {up_axis}')
+                options['scene.up_direction'] = up_directions[up_axis]
+            engine.options.update(options)
             if engine.scene.supports(filename) != f3d.SUPPORTED:
                 raise ValueError(f'Unsupported 3D model format: {filename}')
             engine.scene.add(filename)
@@ -952,15 +1000,23 @@ if F3D_ENABLED:
             self.engine = engine
             self.temporary_file = temporary_file
             self._camera_state = camera_state
+            self._initial_view_preset = initial_view_preset
+            self._up_axis = up_axis
             self._rendered_view = None
             self._native_interaction = False
+            self._orbit_delta_theta = 0.0
+            self._orbit_delta_phi = 0.0
+            self._pan_offset = [0.0, 0.0, 0.0]
 
         @classmethod
-        def from_mesh(cls, mesh, normals, camera_state=None):
+        def from_mesh(cls, mesh, normals, camera_state=None,
+                      initial_view_preset=None, up_axis=None):
             filename = _write_mesh_obj(mesh, normals)
             try:
                 return cls(filename, temporary_file=filename,
-                           camera_state=camera_state)
+                           camera_state=camera_state,
+                           initial_view_preset=initial_view_preset,
+                           up_axis=up_axis)
             except Exception:
                 os.unlink(filename)
                 raise
@@ -973,8 +1029,12 @@ if F3D_ENABLED:
                         and view != self._rendered_view)):
                 camera = self.engine.window.camera
                 camera.reset_to_bounds()
-                camera.azimuth(yaw)
-                camera.elevation(pitch)
+                if self._initial_view_preset:
+                    self.set_view_preset(self._initial_view_preset)
+                    self._initial_view_preset = None
+                else:
+                    camera.azimuth(yaw)
+                    camera.elevation(pitch)
                 camera.zoom(zoom)
                 self._rendered_view = view
                 if self._camera_state is not None:
@@ -1002,29 +1062,244 @@ if F3D_ENABLED:
             state.view_angle = float(values['view_angle'])
             self.engine.window.camera.state = state
 
-        def set_view_preset(self, preset):
-            views = {
-                'top': ((0.0, 0.0, 1.0), (0.0, 1.0, 0.0)),
-                'right': ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
-                'left': ((-1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
-                'bottom': ((0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
+        def set_axis_view(self, axis, positive=True):
+            axes = {
+                'x': (1.0, 0.0, 0.0),
+                'y': (0.0, 1.0, 0.0),
+                'z': (0.0, 0.0, 1.0),
             }
-            if preset not in views:
-                raise ValueError(f'Unsupported camera view preset: {preset}')
+            if axis not in axes:
+                raise ValueError(f'Unsupported camera axis: {axis}')
             state = self.engine.window.camera.state
             focal_point = tuple(state.focal_point)
-            direction, view_up = views[preset]
+            direction = axes[axis]
+            if not positive:
+                direction = tuple(-value for value in direction)
             distance = math.sqrt(sum(
                 (state.position[index] - focal_point[index]) ** 2
                 for index in range(3)))
             if distance <= 0:
                 raise ValueError('Camera position and focal point coincide')
+            up_axes = {
+                'X': (1.0, 0.0, 0.0),
+                'Y': (0.0, 1.0, 0.0),
+                'Z': (0.0, 0.0, 1.0),
+            }
+            up_axis = up_axes.get(self._up_axis, (0.0, 0.0, 1.0))
+            if axis == (self._up_axis or 'Z').lower():
+                view_up = {
+                    'X': (0.0, 1.0, 0.0),
+                    'Y': (0.0, 0.0, 1.0),
+                    'Z': (0.0, 1.0, 0.0),
+                }[self._up_axis or 'Z']
+            else:
+                view_up = up_axis
             state.position = tuple(
                 focal_point[index] + direction[index] * distance
                 for index in range(3))
-            state.view_up = tuple(view_up)
+            state.view_up = view_up
             self.engine.window.camera.state = state
             return self.camera_state()
+
+        def pan(self, delta_x, delta_y, viewport_height):
+            translation = self._pan_translation(
+                delta_x, delta_y, viewport_height)
+            if translation is None:
+                return self.camera_state()
+            state = self.engine.window.camera.state
+            state.position = tuple(
+                state.position[index] + translation[index]
+                for index in range(3))
+            state.focal_point = tuple(
+                state.focal_point[index] + translation[index]
+                for index in range(3))
+            self.engine.window.camera.state = state
+            return self.camera_state()
+
+        def _pan_translation(self, delta_x, delta_y, viewport_height):
+            if viewport_height <= 0:
+                return None
+            state = self.engine.window.camera.state
+            position = tuple(state.position)
+            focal_point = tuple(state.focal_point)
+            forward = tuple(focal_point[index] - position[index]
+                            for index in range(3))
+            distance = math.sqrt(sum(value * value for value in forward))
+            if distance <= 0:
+                return None
+            forward = tuple(value / distance for value in forward)
+            view_up = tuple(state.view_up)
+            right = (
+                forward[1] * view_up[2] - forward[2] * view_up[1],
+                forward[2] * view_up[0] - forward[0] * view_up[2],
+                forward[0] * view_up[1] - forward[1] * view_up[0],
+            )
+            right_length = math.sqrt(sum(value * value for value in right))
+            if right_length <= 0:
+                return None
+            right = tuple(value / right_length for value in right)
+            camera_up = (
+                right[1] * forward[2] - right[2] * forward[1],
+                right[2] * forward[0] - right[0] * forward[2],
+                right[0] * forward[1] - right[1] * forward[0],
+            )
+            scale = (2 * distance
+                     * math.tan(math.radians(float(state.view_angle)) / 2)
+                     / viewport_height)
+            return tuple(
+                -delta_x * scale * right[index]
+                + delta_y * scale * camera_up[index]
+                for index in range(3))
+
+        def queue_pan(self, delta_x, delta_y, viewport_height):
+            translation = self._pan_translation(
+                delta_x, delta_y, viewport_height)
+            if translation is not None:
+                self._pan_offset = [
+                    self._pan_offset[index] + translation[index]
+                    for index in range(3)]
+            return self.camera_state()
+
+        def orbit(self, previous, current, viewport_width, viewport_height):
+            """Accumulate OrbitControls-style rotation for damped updates."""
+
+            if viewport_width <= 0 or viewport_height <= 0:
+                return self.camera_state()
+            delta_x = float(current[0]) - float(previous[0])
+            delta_y = float(current[1]) - float(previous[1])
+            self._orbit_delta_theta -= (
+                2 * math.pi * delta_x / viewport_height)
+            self._orbit_delta_phi -= (
+                2 * math.pi * delta_y / viewport_height)
+            return self.camera_state()
+
+        def advance_controls(self, damping_factor=0.05):
+            """Advance camera motion using OrbitControls' damping factor."""
+
+            damping_factor = min(1.0, max(0.0, float(damping_factor)))
+            theta = self._orbit_delta_theta * damping_factor
+            phi = self._orbit_delta_phi * damping_factor
+            translation = tuple(
+                value * damping_factor for value in self._pan_offset)
+            moved = (abs(theta) > 1e-12 or abs(phi) > 1e-12
+                     or any(abs(value) > 1e-12 for value in translation))
+            if moved:
+                self._apply_orbit(theta, phi)
+                state = self.engine.window.camera.state
+                state.position = tuple(
+                    state.position[index] + translation[index]
+                    for index in range(3))
+                state.focal_point = tuple(
+                    state.focal_point[index] + translation[index]
+                    for index in range(3))
+                self.engine.window.camera.state = state
+
+            decay = 1.0 - damping_factor
+            self._orbit_delta_theta *= decay
+            self._orbit_delta_phi *= decay
+            self._pan_offset = [
+                value * decay for value in self._pan_offset]
+            pending = (
+                abs(self._orbit_delta_theta) > 1e-5
+                or abs(self._orbit_delta_phi) > 1e-5
+                or any(abs(value) > 1e-5 for value in self._pan_offset))
+            if not pending:
+                self.cancel_pending_controls()
+            return self.camera_state(), pending
+
+        def _apply_orbit(self, theta_delta, phi_delta):
+            state = self.engine.window.camera.state
+            axis = {'X': 0, 'Y': 1, 'Z': 2}.get(
+                self._up_axis or 'Z', 2)
+            up = tuple(1.0 if index == axis else 0.0
+                       for index in range(3))
+            forward = {
+                0: (0.0, 0.0, 1.0),
+                1: (0.0, 0.0, 1.0),
+                2: (0.0, -1.0, 0.0),
+            }[axis]
+            right = (
+                up[1] * forward[2] - up[2] * forward[1],
+                up[2] * forward[0] - up[0] * forward[2],
+                up[0] * forward[1] - up[1] * forward[0],
+            )
+            offset = tuple(
+                state.position[index] - state.focal_point[index]
+                for index in range(3))
+            distance = math.sqrt(sum(value * value for value in offset))
+            if distance <= 1e-10:
+                return
+            theta = math.atan2(
+                sum(offset[i] * right[i] for i in range(3)),
+                sum(offset[i] * forward[i] for i in range(3)))
+            phi = math.acos(min(1.0, max(
+                -1.0, sum(offset[i] * up[i] for i in range(3))
+                / distance)))
+            theta += theta_delta
+            phi = min(math.pi - 1e-6, max(1e-6, phi + phi_delta))
+            sin_phi = math.sin(phi)
+            offset = tuple(distance * (
+                right[i] * sin_phi * math.sin(theta)
+                + up[i] * math.cos(phi)
+                + forward[i] * sin_phi * math.cos(theta))
+                for i in range(3))
+            state.position = tuple(
+                state.focal_point[i] + offset[i] for i in range(3))
+            view_forward = tuple(-value / distance for value in offset)
+            camera_right = (
+                view_forward[1] * up[2] - view_forward[2] * up[1],
+                view_forward[2] * up[0] - view_forward[0] * up[2],
+                view_forward[0] * up[1] - view_forward[1] * up[0],
+            )
+            right_length = math.sqrt(sum(
+                value * value for value in camera_right))
+            camera_right = tuple(
+                value / right_length for value in camera_right)
+            state.view_up = (
+                camera_right[1] * view_forward[2]
+                - camera_right[2] * view_forward[1],
+                camera_right[2] * view_forward[0]
+                - camera_right[0] * view_forward[2],
+                camera_right[0] * view_forward[1]
+                - camera_right[1] * view_forward[0],
+            )
+            self.engine.window.camera.state = state
+
+        def cancel_pending_controls(self):
+            self._orbit_delta_theta = 0.0
+            self._orbit_delta_phi = 0.0
+            self._pan_offset = [0.0, 0.0, 0.0]
+
+        def dolly(self, distance_factor):
+            state = self.engine.window.camera.state
+            focal_point = tuple(state.focal_point)
+            offset = tuple(
+                state.position[index] - focal_point[index]
+                for index in range(3))
+            distance = math.sqrt(sum(value * value for value in offset))
+            if distance <= 1e-10:
+                return self.camera_state()
+            factor = max(1e-4, float(distance_factor))
+            new_distance = max(1e-4, distance * factor)
+            state.position = tuple(
+                focal_point[index] + offset[index] * new_distance
+                / distance for index in range(3))
+            self.engine.window.camera.state = state
+            return self.camera_state()
+
+        def set_view_preset(self, preset):
+            top_axis = (self._up_axis or 'Z').lower()
+            side_axis = {'X': 'y', 'Y': 'x', 'Z': 'x'}[
+                self._up_axis or 'Z']
+            views = {
+                'top': (top_axis, True),
+                'right': (side_axis, True),
+                'left': (side_axis, False),
+                'bottom': (top_axis, False),
+            }
+            if preset not in views:
+                raise ValueError(f'Unsupported camera view preset: {preset}')
+            return self.set_axis_view(*views[preset])
 
         def begin_interaction(self, button, x, y):
             interactor = self.engine.interactor
@@ -1053,14 +1328,10 @@ if F3D_ENABLED:
             return self.camera_state()
 
         def scroll_interaction(self, direction, x, y):
-            interactor = self.engine.interactor
-            wheels = {
-                'forward': interactor.WheelDirection.FORWARD,
-                'backward': interactor.WheelDirection.BACKWARD,
-            }
-            interactor.trigger_mouse_position(x, y)
-            interactor.trigger_mouse_wheel(wheels[direction])
-            return self.camera_state()
+            factors = {'forward': 0.95, 'backward': 1 / 0.95}
+            if direction not in factors:
+                raise ValueError(f'Unsupported scroll direction: {direction}')
+            return self.dolly(factors[direction])
 
         def close(self):
             self.engine = None

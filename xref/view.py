@@ -134,6 +134,7 @@ class XRefGraphicsView(MainControlsMixin,
         self.active_mode = None
         self._model_camera_item = None
         self._model_camera_button = None
+        self._model_camera_drag_mode = None
         self._native_resize_active = False
         self._right_window_drag_start = None
         self._right_window_drag_origin = None
@@ -2084,20 +2085,25 @@ class XRefGraphicsView(MainControlsMixin,
         self.reset_previous_transform()
 
     def wheelEvent(self, event):
-        if (model3d.F3D_ENABLED
-                and self._model_camera_item is not None):
-            pos = event.position().toPoint()
-            if self.model_item_at(pos) is self._model_camera_item:
+        pos = event.position().toPoint()
+        model_item = self.model_item_at(pos)
+        if model3d.F3D_ENABLED and model_item is not None:
+            if model_item.activate_f3d_controls():
+                if (self._model_camera_item is not None
+                        and self._model_camera_item is not model_item):
+                    self._model_camera_item.deactivate_f3d_controls()
+                self._model_camera_item = model_item
                 delta = event.angleDelta().y()
                 if delta:
                     direction = 'forward' if delta > 0 else 'backward'
-                    steps = max(1, abs(delta) // 120)
-                    for _ in range(steps):
-                        self._model_camera_item.scroll_f3d_interaction(
-                            direction, self.model_item_position(
-                                self._model_camera_item, pos))
+                    model_item.scroll_f3d_interaction(
+                        direction,
+                        self.model_item_position(model_item, pos),
+                        abs(delta) / 120)
                 event.accept()
                 return
+        if (self._model_camera_item is not None
+                and model_item is not self._model_camera_item):
             self._model_camera_item.deactivate_f3d_controls()
             self._model_camera_item = None
 
@@ -2205,56 +2211,78 @@ class XRefGraphicsView(MainControlsMixin,
         return True
 
     def mousePressEvent(self, event):
+        model_item = self.model_item_at(event.pos())
         if event.button() == Qt.MouseButton.LeftButton:
-            model_item = self.model_item_at(event.pos())
-            if model_item is not None:
+            if model3d.F3D_ENABLED and model_item is not None:
                 item_pos = model_item.mapFromScene(
                     self.mapToScene(event.pos()))
-                preset = model_item.f3d_view_preset_at(item_pos)
-                if (preset is not None
+                axis_view = model_item.f3d_gizmo_axis_at(item_pos)
+                if (axis_view is not None
                         and model_item.activate_f3d_controls()):
                     if (self._model_camera_item is not None
                             and self._model_camera_item is not model_item):
                         self._model_camera_item.deactivate_f3d_controls()
                     self._model_camera_item = model_item
                     self._model_camera_button = None
+                    self._model_camera_drag_mode = None
                     self.active_mode = None
                     self.scene.clearSelection()
                     model_item.setSelected(True)
-                    model_item.set_f3d_view_preset(preset)
+                    model_item.set_f3d_axis_view(*axis_view)
                     self.setFocus(Qt.FocusReason.MouseFocusReason)
                     event.accept()
                     return
 
-        if (model3d.F3D_ENABLED
-                and self._model_camera_item is not None):
-            item = self.model_item_at(event.pos())
-            if item is not self._model_camera_item:
-                self._model_camera_item.deactivate_f3d_controls()
-                self._model_camera_item = None
-                self.active_mode = None
-            elif event.button() == Qt.MouseButton.LeftButton:
-                self._model_camera_item.begin_f3d_interaction(
-                    'left', self.model_item_position(
-                        self._model_camera_item, event.pos()))
-                self._model_camera_button = event.button()
-                self.active_mode = self.MODEL_CAMERA_MODE
-                event.accept()
-                return
+        if (self._model_camera_item is not None
+                and model_item is not self._model_camera_item):
+            self._model_camera_item.deactivate_f3d_controls()
+            self._model_camera_item = None
+            self._model_camera_button = None
+            self._model_camera_drag_mode = None
+            self.active_mode = None
 
-        model_item = self.model_item_at(event.pos())
-        if (model_item is not None
-                and event.button() == Qt.MouseButton.LeftButton
-                and model_item.activate_f3d_controls()):
-            if self._model_camera_item is not None:
+        camera_modes = {
+            Qt.MouseButton.LeftButton: 'orbit',
+            Qt.MouseButton.MiddleButton: 'dolly',
+            Qt.MouseButton.RightButton: 'pan',
+        }
+        camera_mode = camera_modes.get(event.button())
+        modifiers = event.modifiers()
+        modifier_pan = bool(modifiers and modifiers & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.MetaModifier
+            | Qt.KeyboardModifier.ShiftModifier))
+        if modifier_pan and event.button() == Qt.MouseButton.LeftButton:
+            camera_mode = 'pan'
+        elif modifier_pan and event.button() == Qt.MouseButton.RightButton:
+            camera_mode = 'orbit'
+        if camera_mode is not None and model_item is not None:
+            if (self._model_camera_item is not None
+                    and self._model_camera_item is not model_item):
                 self._model_camera_item.deactivate_f3d_controls()
-            self._model_camera_item = model_item
+            local_pos = self.model_item_position(model_item, event.pos())
             self.scene.clearSelection()
             model_item.setSelected(True)
-            self.setFocus(Qt.FocusReason.MouseFocusReason)
-            model_item.begin_f3d_interaction(
-                'left', self.model_item_position(model_item, event.pos()))
+            if model3d.F3D_ENABLED and model_item.activate_f3d_controls():
+                self._model_camera_item = model_item
+                self._model_camera_drag_mode = camera_mode
+                if camera_mode == 'orbit':
+                    model_item.begin_f3d_orbit(local_pos)
+                elif camera_mode == 'pan':
+                    model_item.begin_f3d_pan(local_pos)
+                else:
+                    model_item.begin_f3d_dolly(local_pos)
+            else:
+                self._model_camera_item = model_item
+                self._model_camera_drag_mode = camera_mode
+                if camera_mode == 'pan':
+                    model_item.begin_camera_pan(event.position())
+                elif camera_mode == 'orbit':
+                    model_item.begin_camera_drag(event.position())
+                else:
+                    model_item.begin_camera_dolly(event.position())
             self._model_camera_button = event.button()
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
             self.active_mode = self.MODEL_CAMERA_MODE
             event.accept()
             return
@@ -2287,26 +2315,6 @@ class XRefGraphicsView(MainControlsMixin,
             event.accept()
             return
 
-        if event.button() == Qt.MouseButton.MiddleButton:
-            pos = event.pos()
-            if isinstance(pos, QtCore.QPoint):
-                scene_pos = self.mapToScene(pos)
-                model_item = next(
-                    (item for item in self.scene.items(scene_pos)
-                     if isinstance(item, XRefModelItem)),
-                    None)
-            else:
-                model_item = None
-            if (model_item is not None
-                    and (not model3d.F3D_ENABLED
-                         or model_item._renderer is None)):
-                self._model_camera_item = model_item
-                self._model_camera_item.begin_camera_drag(event.position())
-                self._model_camera_button = event.button()
-                self.active_mode = self.MODEL_CAMERA_MODE
-                event.accept()
-                return
-
         action, inverted = self.keyboard_settings.mouse_action_for_event(event)
 
         if action == 'zoom':
@@ -2336,13 +2344,24 @@ class XRefGraphicsView(MainControlsMixin,
             return
         if (self.active_mode == self.MODEL_CAMERA_MODE
                 and self._model_camera_item is not None):
-            if (model3d.F3D_ENABLED
-                    and self._model_camera_item._renderer is not None):
-                self._model_camera_item.update_f3d_interaction(
-                    self.model_item_position(
-                        self._model_camera_item, event.pos()))
+            mode = self._model_camera_drag_mode
+            is_f3d = (model3d.F3D_ENABLED
+                      and self._model_camera_item._renderer is not None)
+            if is_f3d:
+                position = self.model_item_position(
+                    self._model_camera_item, event.pos())
+                if mode == 'pan':
+                    self._model_camera_item.update_f3d_pan(position)
+                elif mode == 'orbit':
+                    self._model_camera_item.update_f3d_orbit(position)
+                else:
+                    self._model_camera_item.update_f3d_dolly(position)
+            elif mode == 'pan':
+                self._model_camera_item.update_camera_pan(event.position())
+            elif mode == 'orbit':
+                self._model_camera_item.update_camera_drag(event.position())
             else:
-                self._model_camera_item.update_camera_drag(
+                self._model_camera_item.update_camera_dolly(
                     event.position())
             event.accept()
             return
@@ -2398,35 +2417,34 @@ class XRefGraphicsView(MainControlsMixin,
         if (event.button() == Qt.MouseButton.RightButton
                 and self.end_right_window_drag(event)):
             return
-        if (event.button() == Qt.MouseButton.MiddleButton
-                and self._model_camera_button
-                == Qt.MouseButton.MiddleButton
+        if (event.button() == self._model_camera_button
+                and self._model_camera_button is not None
                 and self.active_mode == self.MODEL_CAMERA_MODE):
-            if (model3d.F3D_ENABLED
-                    and self._model_camera_item._renderer is not None):
-                self._model_camera_item.end_f3d_interaction(
-                    'middle', self.model_item_position(
-                        self._model_camera_item, event.pos()))
-            else:
+            is_f3d = (model3d.F3D_ENABLED
+                      and self._model_camera_item._renderer is not None)
+            if is_f3d:
+                position = self.model_item_position(
+                    self._model_camera_item, event.pos())
+                if self._model_camera_drag_mode == 'pan':
+                    self._model_camera_item.update_f3d_pan(position)
+                elif self._model_camera_drag_mode == 'orbit':
+                    self._model_camera_item.update_f3d_orbit(position)
+                else:
+                    self._model_camera_item.update_f3d_dolly(position)
+            elif self._model_camera_drag_mode == 'pan':
+                self._model_camera_item.update_camera_pan(
+                    event.position())
                 self._model_camera_item.end_camera_drag()
-                self._model_camera_item = None
+            elif self._model_camera_drag_mode == 'orbit':
+                self._model_camera_item.update_camera_drag(
+                    event.position())
+                self._model_camera_item.end_camera_drag()
+            else:
+                self._model_camera_item.update_camera_dolly(
+                    event.position())
+                self._model_camera_item.end_camera_drag()
             self._model_camera_button = None
-            self.active_mode = None
-            event.accept()
-            return
-        if (self.active_mode == self.MODEL_CAMERA_MODE
-                and self._model_camera_item is not None
-                and event.button() == self._model_camera_button):
-            button = {
-                Qt.MouseButton.LeftButton: 'left',
-                Qt.MouseButton.MiddleButton: 'middle',
-                Qt.MouseButton.RightButton: 'right',
-            }[event.button()]
-            if model3d.F3D_ENABLED:
-                self._model_camera_item.end_f3d_interaction(
-                    button, self.model_item_position(
-                        self._model_camera_item, event.pos()))
-            self._model_camera_button = None
+            self._model_camera_drag_mode = None
             self.active_mode = None
             event.accept()
             return
@@ -2520,6 +2538,7 @@ class XRefGraphicsView(MainControlsMixin,
             self._model_camera_item.deactivate_f3d_controls()
             self._model_camera_item = None
             self._model_camera_button = None
+            self._model_camera_drag_mode = None
             self.active_mode = None
             event.accept()
             return

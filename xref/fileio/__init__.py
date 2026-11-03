@@ -103,12 +103,16 @@ def load_media_items(filenames, pos, scene, worker):
 
     errors = []
     items = []
+    settings = XRefSettings()
+    image_preview_max_dimension = settings.valueOrDefault(
+        'Items/image_preview_max_dimension')
+    model_default_view = settings.valueOrDefault(
+        'Items/model_default_view')
+    model_up_axis = settings.valueOrDefault('Items/model_up_axis')
     worker.begin_processing.emit(len(filenames))
     for i, filename in enumerate(filenames):
         logger.info(f'Loading media from file {filename}')
-        result = load_media(
-            filename, XRefSettings().valueOrDefault(
-                'Items/image_preview_max_dimension'))
+        result = load_media(filename, image_preview_max_dimension)
         worker.progress.emit(i)
         if result is None:
             logger.info(f'Could not load file {filename}')
@@ -137,6 +141,8 @@ def load_media_items(filenames, pos, scene, worker):
             item = XRefModelItem(
                 model_path=data,
                 filename=os.path.basename(resolved),
+                initial_view_preset=model_default_view,
+                model_up_axis=model_up_axis,
             )
             itype = 'model'
         else:

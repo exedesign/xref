@@ -100,8 +100,11 @@ class XRefMainWindow(QtWidgets.QMainWindow):
                     event.globalPosition().toPoint())
             if (event_type == QtCore.QEvent.Type.MouseButtonPress
                     and event.button() == QtCore.Qt.MouseButton.RightButton):
-                self.view.begin_right_window_drag(event)
-                return True
+                position = self.view.viewport().mapFromGlobal(
+                    event.globalPosition().toPoint())
+                if self.view.model_item_at(position) is None:
+                    self.view.begin_right_window_drag(event)
+                    return True
             if (event_type == QtCore.QEvent.Type.MouseMove
                     and self.view.continue_right_window_drag(event)):
                 return True

@@ -103,10 +103,10 @@ TRANSLATIONS = {
         'Right': 'Sağ',
         'Left': 'Sol',
         'Bottom': 'Alt',
-        'Drag horizontally or vertically to rotate':
-            'Yatay veya dikey sürükleyerek döndürün',
-        'Wheel: zoom  |  Esc: exit':
-            'Tekerlek: yakınlaştır  |  Esc: çıkış',
+        'LMB: orbit  |  RMB: pan':
+            'Sol tuş: döndür  |  Sağ tuş: taşı',
+        'MMB/Wheel: zoom  |  Click axes: align':
+            'Orta tuş/tekerlek: yakınlaştır  |  Eksenlere tıkla: hizala',
         '3D model could not be loaded': '3D model yüklenemedi',
         'Click to lock this frame': 'Bu kareyi kilitlemek için tıklayın',
         'Click to browse the frames again':
@@ -539,6 +539,31 @@ TRANSLATIONS = {
             'Ağır bir model döndürülürken önizleme en fazla bu sıklıkla '
             'yenilenir. 0 kısıtlamayı kapatır (en akıcı, ama büyük '
             'modeller takılabilir).',
+        'Default 3D Model View:': 'Varsayılan 3D Model Görünümü:',
+        'The initial view used when a 3D model is imported. '
+        'Existing models keep their saved view.':
+            '3D model içe aktarıldığında kullanılacak ilk görünüm. '
+            'Mevcut modeller kayıtlı görünümlerini korur.',
+        'Perspective': 'Perspektif',
+        'Use the standard perspective view':
+            'Standart perspektif görünümünü kullan',
+        'Start from above the model': 'Modelin üstünden başla',
+        'Start from the right side of the model':
+            'Modelin sağ tarafından başla',
+        'Start from the left side of the model':
+            'Modelin sol tarafından başla',
+        'Start from below the model': 'Modelin altından başla',
+        'Default 3D Model Up Axis:': 'Varsayılan 3D Model Yukarı Ekseni:',
+        'Choose the vertical axis for the viewer. GLB/glTF models '
+        'are converted from their standard Y-up orientation.':
+            'Görüntüleyicinin dikey eksenini seçin. GLB/glTF modelleri '
+            'standart Y-yukarı yönünden dönüştürülür.',
+        'Z axis is up': 'Z ekseni yukarı',
+        'Y axis is up': 'Y ekseni yukarı',
+        'X axis is up': 'X ekseni yukarı',
+        'Treat the Z axis as vertical': 'Z eksenini dikey kabul et',
+        'Treat the Y axis as vertical': 'Y eksenini dikey kabul et',
+        'Treat the X axis as vertical': 'X eksenini dikey kabul et',
         'Show Media Titles:': 'Medya Başlıklarını Göster:',
         'Show the file name of each image, video and PDF on the '
         'canvas, so references are easier to identify.':

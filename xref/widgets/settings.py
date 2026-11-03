@@ -272,6 +272,32 @@ class ModelPreviewIntervalWidget(IntegerGroup):
     MAX = 1000
 
 
+class ModelDefaultViewWidget(RadioGroup):
+    TITLE = 'Default 3D Model View:'
+    HELPTEXT = ('The initial view used when a 3D model is imported. '
+                'Existing models keep their saved view.')
+    KEY = 'Items/model_default_view'
+    OPTIONS = (
+        ('perspective', 'Perspective', 'Use the standard perspective view'),
+        ('top', 'Top', 'Start from above the model'),
+        ('right', 'Right', 'Start from the right side of the model'),
+        ('left', 'Left', 'Start from the left side of the model'),
+        ('bottom', 'Bottom', 'Start from below the model'),
+    )
+
+
+class ModelUpAxisWidget(RadioGroup):
+    TITLE = 'Default 3D Model Up Axis:'
+    HELPTEXT = ('Choose the vertical axis for the viewer. GLB/glTF models '
+                'are converted from their standard Y-up orientation.')
+    KEY = 'Items/model_up_axis'
+    OPTIONS = (
+        ('Z', 'Z axis is up', 'Treat the Z axis as vertical'),
+        ('Y', 'Y axis is up', 'Treat the Y axis as vertical'),
+        ('X', 'X axis is up', 'Treat the X axis as vertical'),
+    )
+
+
 class ShowMediaTitlesWidget(SingleCheckboxGroup):
     TITLE = 'Show Media Titles:'
     HELPTEXT = ('Show the file name of each image, video and PDF on the '
@@ -347,7 +373,8 @@ class SettingsDialog(QtWidgets.QDialog):
         self.layout.addLayout(content, 1)
 
         performance_widgets = [
-            ImagePreviewMaxDimensionWidget, ModelPreviewIntervalWidget]
+            ImagePreviewMaxDimensionWidget, ModelPreviewIntervalWidget,
+            ModelDefaultViewWidget, ModelUpAxisWidget]
         if not model3d.F3D_ENABLED:
             performance_widgets.insert(1, ModelMaxTrianglesWidget)
         category_specs = [
