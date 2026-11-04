@@ -245,6 +245,22 @@ class XRefSettings(QtCore.QSettings):
             'validate': lambda x: isinstance(x, str) and len(x) == 7,
             'post_save_callback': apply_canvas_color_setting,
         },
+        'View/grid_style': {
+            'default': 'off',
+            'validate': lambda x: x in ('off', 'dots', 'squares'),
+            'post_save_callback': _repaint_all_views,
+        },
+        'View/grid_spacing': {
+            'default': 100,
+            'cast': int,
+            'validate': lambda x: 10 <= x <= 500,
+            'post_save_callback': _repaint_all_views,
+        },
+        'View/grid_snap': {
+            'default': False,
+            'cast': bool,
+            'post_save_callback': _repaint_all_views,
+        },
     }
 
     def __init__(self):

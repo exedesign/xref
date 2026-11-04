@@ -61,6 +61,38 @@ def with_anchor(func):
 
 class BaseItemMixin:
 
+    #: Whether dragging this item snaps it to the reference grid when the
+    #: grid snap setting is on. Transient items (rubberband, multi-select
+    #: helper) opt out.
+    SNAP_TO_GRID = True
+
+    def itemChange(self, change, value):
+        # Snap while the user drags the item around with the mouse. Qt sends
+        # ItemPositionChange for programmatic moves too, so the mouse
+        # grabber check keeps loading, arranging and undo unaffected.
+        if (change == QGraphicsItem.GraphicsItemChange.ItemPositionChange
+                and self.SNAP_TO_GRID):
+            snapped = self.snapped_position(value)
+            if snapped is not None:
+                value = snapped
+        return super().itemChange(change, value)
+
+    def snapped_position(self, value):
+        """The grid-snapped version of a proposed position, or None."""
+
+        scene = self.scene()
+        if scene is None or not hasattr(value, 'x'):
+            return None
+        if scene.mouseGrabberItem() is not self:
+            return None
+        views = scene.views()
+        if not views:
+            return None
+        view = views[0]
+        if not hasattr(view, 'snap_point') or not view.grid_snap_enabled():
+            return None
+        return view.snap_point(QtCore.QPointF(value))
+
     @with_anchor
     def setScale(self, value):
         if value <= 0:
@@ -151,7 +183,11 @@ class SelectableMixin(BaseItemMixin):
         self.setAcceptHoverEvents(True)
         self.setFlags(
             QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            # Needed for the grid snap: without it Qt never asks the item
+            # about a position change
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag
+            .ItemSendsGeometryChanges)
 
         self.viewport_scale = 1
         self.active_mode = None
@@ -626,6 +662,9 @@ class MultiSelectItem(SelectableMixin,
                       QtWidgets.QGraphicsRectItem):
     """The multi selection outline around all selected items."""
 
+    #: The outline follows the selection; it must never snap to the grid.
+    SNAP_TO_GRID = False
+
     def __init__(self):
         super().__init__()
         logger.debug(f'Initialized {self}')
@@ -690,6 +729,9 @@ class MultiSelectItem(SelectableMixin,
 
 class RubberbandItem(BaseItemMixin, QtWidgets.QGraphicsRectItem):
     """The outline for the rubber band selection."""
+
+    #: A selection marquee must stay exactly under the pointer.
+    SNAP_TO_GRID = False
 
     def __init__(self):
         super().__init__()

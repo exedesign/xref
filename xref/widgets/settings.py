@@ -313,6 +313,35 @@ class CanvasColorWidget(ColorGroup):
     KEY = 'View/canvas_color'
 
 
+class GridStyleWidget(RadioGroup):
+    TITLE = 'Reference Grid:'
+    HELPTEXT = ('A grid drawn behind the images to help line things up, '
+                'like the grid in PureRef.')
+    KEY = 'View/grid_style'
+    OPTIONS = (
+        ('off', 'Off', 'Do not draw a grid'),
+        ('dots', 'Dots', 'Draw a dot at every grid intersection'),
+        ('squares', 'Squares', 'Draw grid lines, forming squares'),
+    )
+
+
+class GridSpacingWidget(IntegerGroup):
+    TITLE = 'Grid Spacing (px):'
+    HELPTEXT = ('Distance between two grid steps. The grid lives on the '
+                'canvas, so it zooms together with the images.')
+    KEY = 'View/grid_spacing'
+    MIN = 10
+    MAX = 500
+
+
+class GridSnapWidget(SingleCheckboxGroup):
+    TITLE = 'Snap to Grid:'
+    HELPTEXT = ('While dragging, the top left corner of an item jumps to the '
+                'nearest grid intersection.')
+    LABEL = 'Snap items to the grid while dragging'
+    KEY = 'View/grid_snap'
+
+
 class WindowButtonsDelayWidget(IntegerGroup):
     TITLE = 'Window Buttons Delay:'
     HELPTEXT = ('How long the pointer has to rest in the top right corner '
@@ -381,7 +410,8 @@ class SettingsDialog(QtWidgets.QDialog):
             ('Performance', QtWidgets.QStyle.StandardPixmap.SP_ComputerIcon,
              performance_widgets),
             ('Appearance', QtWidgets.QStyle.StandardPixmap.SP_DesktopIcon,
-             [CanvasColorWidget, ShowMediaTitlesWidget]),
+             [CanvasColorWidget, GridStyleWidget, GridSpacingWidget,
+              GridSnapWidget, ShowMediaTitlesWidget]),
             ('Saving and loading',
              QtWidgets.QStyle.StandardPixmap.SP_DialogSaveButton,
              [ImageStorageFormatWidget, AutosaveWidget,

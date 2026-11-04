@@ -575,6 +575,29 @@ TRANSLATIONS = {
         'default for looking at reference images.':
             'Çalışma alanının arka plan rengi. Referans görsellere bakmak '
             'için siyah iyi bir varsayılandır.',
+        'Reference Grid:': 'Referans Izgarası:',
+        'A grid drawn behind the images to help line things up, '
+        'like the grid in PureRef.':
+            'Görsellerin arkasına çizilen, hizalamaya yardımcı olan ızgara; '
+            'PureRef\'teki ızgara gibi.',
+        'Do not draw a grid': 'Izgara çizme',
+        'Squares': 'Kareler',
+        'Draw a dot at every grid intersection':
+            'Her ızgara kesişimine bir nokta çiz',
+        'Draw grid lines, forming squares':
+            'Kareler oluşturacak şekilde ızgara çizgileri çiz',
+        'Grid Spacing (px):': 'Izgara Aralığı (px):',
+        'Distance between two grid steps. The grid lives on the '
+        'canvas, so it zooms together with the images.':
+            'İki ızgara adımı arasındaki mesafe. Izgara tuval üzerinde '
+            'yaşadığı için görsellerle birlikte yakınlaşır.',
+        'Snap to Grid:': 'Izgaraya Yapış:',
+        'While dragging, the top left corner of an item jumps to the '
+        'nearest grid intersection.':
+            'Sürüklerken öğenin sol üst köşesi en yakın ızgara kesişimine '
+            'atlar.',
+        'Snap items to the grid while dragging':
+            'Sürüklerken öğeleri ızgaraya yapıştır',
         'Arrange Gap:': 'Yerleştirme Boşluğu:',
         'The gap between images when using arrange actions.':
             'Yerleştirme işlemlerinde görseller arasındaki boşluk.',

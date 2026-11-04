@@ -362,6 +362,120 @@ class XRefGraphicsView(MainControlsMixin,
             color = QtGui.QColor(*constants.COLORS['Scene:Canvas'])
         return color
 
+    # -- Grid -------------------------------------------------------------
+
+    #: Below this many screen pixels between two grid steps the grid is
+    #: skipped, otherwise a zoomed-out board turns into a solid rectangle.
+    GRID_MIN_SCREEN_SPACING = 6.0
+    #: Radius of a grid dot in screen pixels.
+    GRID_DOT_RADIUS = 1.4
+
+    def grid_style(self):
+        """The configured grid style: ``off``, ``dots`` or ``squares``."""
+
+        style = self.settings.valueOrDefault('View/grid_style')
+        return style if style in ('off', 'dots', 'squares') else 'off'
+
+    def grid_spacing(self):
+        """Distance between two grid steps, in scene units."""
+
+        try:
+            spacing = int(self.settings.valueOrDefault('View/grid_spacing'))
+        except (TypeError, ValueError):
+            return 100
+        return max(10, spacing)
+
+    def grid_snap_enabled(self):
+        """Whether dragging an item snaps it to the grid."""
+
+        return bool(self.settings.valueOrDefault('View/grid_snap'))
+
+    def grid_color(self):
+        """A subtle grid colour that contrasts with the canvas.
+
+        PureRef keeps the grid barely visible: a light tint on a dark
+        canvas and a dark tint on a light one.
+        """
+
+        canvas = self.get_canvas_color()
+        luminance = (canvas.redF() * 0.299 + canvas.greenF() * 0.587
+                     + canvas.blueF() * 0.114)
+        if luminance < 0.5:
+            return QtGui.QColor(255, 255, 255, 46)
+        return QtGui.QColor(0, 0, 0, 46)
+
+    def snap_point(self, point):
+        """Rounds a scene point to the nearest grid intersection."""
+
+        if not self.grid_snap_enabled():
+            return point
+        spacing = self.grid_spacing()
+        return QtCore.QPointF(
+            round(point.x() / spacing) * spacing,
+            round(point.y() / spacing) * spacing)
+
+    def drawBackground(self, painter, rect):
+        """Paints the canvas colour and the optional reference grid."""
+
+        painter.fillRect(rect, self.backgroundBrush())
+        style = self.grid_style()
+        if style == 'off':
+            return
+        scale = self.get_scale()
+        spacing = self.grid_spacing()
+        step = spacing * scale
+        if step < self.GRID_MIN_SCREEN_SPACING:
+            # Too dense to be readable; draw every Nth step instead
+            steps = int(
+                math.ceil(self.GRID_MIN_SCREEN_SPACING / step))
+            step_scene = spacing * steps
+        else:
+            step_scene = spacing
+        # Snap the start to the grid so points don't swim while panning
+        first_x = math.floor(rect.left() / step_scene) * step_scene
+        first_y = math.floor(rect.top() / step_scene) * step_scene
+        color = self.grid_color()
+        if style == 'squares':
+            pen = QtGui.QPen(color)
+            pen.setWidthF(1.0)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            x = first_x
+            while x <= rect.right():
+                painter.drawLine(
+                    QtCore.QPointF(x, rect.top()),
+                    QtCore.QPointF(x, rect.bottom()))
+                x += step_scene
+            y = first_y
+            while y <= rect.bottom():
+                painter.drawLine(
+                    QtCore.QPointF(rect.left(), y),
+                    QtCore.QPointF(rect.right(), y))
+                y += step_scene
+            return
+        # Dots: one cosmetic pen with round caps draws them cheaply
+        pen = QtGui.QPen(color)
+        radius = self.GRID_DOT_RADIUS
+        pen.setWidthF(radius * 2)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        points = []
+        y = first_y
+        while y <= rect.bottom():
+            x = first_x
+            while x <= rect.right():
+                points.append(QtCore.QPointF(x, y))
+                x += step_scene
+            y += step_scene
+        if points:
+            painter.drawPoints(points)
+
+    def apply_grid_settings(self):
+        """Repaints the canvas after a grid setting changed."""
+
+        self.viewport().update()
+
     def apply_canvas_color(self):
         """Sets the background colour of the canvas from the settings."""
 
