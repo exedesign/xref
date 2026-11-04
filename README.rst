@@ -22,6 +22,36 @@ XRef ile referans görsellerinizi, videolarınızı, PDF'lerinizi ve 3D
 modellerinizi hızla düzenleyebilir, yaratırken yanınızda tutabilirsiniz.
 Sade arayüzü, yaratıcı sürecinizin önüne geçmemek için tasarlandı.
 
+Yenilikler (0.5.0)
+------------------
+
+* **PureRef tarzı referans ızgarası** (Ayarlar -> Görünüm -> Referans
+  Izgarası): nokta ızgara, kare ızgara ya da kapalı. Izgara tuvalin
+  üzerinde yaşar, yani görsellerle birlikte yakınlaşıp kayar; aralık
+  10-500 px arasında ayarlanabilir. Rengi tuval rengine göre kendini
+  ayarlar (koyu tuvalde açık, açık tuvalde koyu ton), çok yoğunlaşınca
+  seyrekleşir ve kaydırırken kaymaz
+* **Izgaraya yapışma** (Ayarlar -> Görünüm -> Izgaraya Yapış):
+  sürüklerken öge en yakın ızgara kesişimine atlar. Yalnızca fare ile
+  sürüklerken çalışır; dosya yükleme, *Yerleştir* ve geri al/yinele tam
+  koordinatlarını korur
+* **three.js OrbitControls ile 3D gezinme**: modeli düz sürükleyerek
+  tahtada istediğiniz yere taşıyın, kamerayı devralmak için
+  **Ctrl+Sol tık** yapın (sol sürükle = yörünge, sağ sürükle = kaydırma,
+  orta tuş/tekerlek = yakınlaştırma, Shift = yörünge/kaydırma takası).
+  Kamerayı bırakmak için tekrar Ctrl+Sol tık ya da Esc
+* **Model yönü düzeltildi**: F3D'den gelen görüntü alt-üst ters
+  yerleşiyordu; artık tüm modeller doğru yönde açılır. *Varsayılan 3D
+  Model Yukarı Ekseni* ayarı (Ayarlar -> Performans) Z/Y/X arasında
+  gerçekten çalışır
+* **Daha akıcı 3D önizleme**: her karede siyah ekrana düşme bitti; son
+  iyi kare her zaman çizilir. Model üzerindeki tüm yazılar ve eksen
+  gizmosu kaldırıldı — fare gezinirken model artık dönmez
+* **Daha sağlam web paylaşımı**: sunucu 20 sn'de bir WebSocket
+  canlılık sinyali gönderir, kopan bağlantı sınırsız yeniden dener,
+  yarı-açık soketleri bir bekçi (watchdog) yakalar ve WebSocket
+  engelliyse sayfa HTTP yoklamasına düşer
+
 Öne Çıkanlar
 ------------
 
@@ -37,15 +67,19 @@ Sade arayüzü, yaratıcı sürecinizin önüne geçmemek için tasarlandı.
   içinde hatırlar (Ayarlar -> Görünüm -> Sahne Yerleşimlerini Hatırla)
 * Sonsuz tuval: kaydırma, yakınlaştırma, döndürme, çevirme, kırpma,
   hizalama (rastgele dahil) ve boyut eşitleme; tuval rengi ayarlanabilir
+* PureRef tarzı referans ızgarası: nokta ya da kare ızgara, ayarlanabilir
+  aralık ve isteğe bağlı ızgaraya yapışma (Ayarlar -> Görünüm)
 * Video oynatma: DaVinci Resolve benzeri üzerine gelince tarama (kırmızı
   oynatım kafası), hatırlanan önizleme karesi, oynat/duraklat, sessize alma
   ve ses seviyesi; tek tıklama imlecin altındaki kareyi kilitler
 * PDF'ler video gibi çalışır: sayfaların arasında gezinmek için üzerine
   gelin, son gösterilen sayfa hatırlanır ve tahta yeniden açıldığında
   geri yüklenir
-* 3D modeller: modelin üzerinde fareyi gezdirerek döndürün, görüntüyü
-  sabitlemek için tıklayın, yakınlaştırmak için tekerleği kullanın.
-  Windows'ta F3D/libf3d ile GPU hızlandırmalı rendering; F3D okuyucusu
+* 3D modeller: three.js OrbitControls ile birebir gezinme. Modeli düz
+  sürükleyerek tahtada taşıyın; kamerayı devralmak için **Ctrl+Sol tık**
+  yapın (sol sürükle = yörünge, sağ sürükle = kaydırma, orta tuş/tekerlek =
+  yakınlaştırma, Shift = takas), bırakmak için tekrar Ctrl+Sol tık ya da
+  Esc. Windows'ta F3D/libf3d ile GPU hızlandırmalı rendering; F3D okuyucusu
   bulunmayan USD/USDZ dosyalarının geometrisi OpenUSD ile okunup F3D
   üzerinden GPU hızlandırmalı görüntülenir
 * Medya başlıkları: görsel, video, PDF ve modeller dosya adlarını tuvalde
@@ -70,7 +104,9 @@ Sade arayüzü, yaratıcı sürecinizin önüne geçmemek için tasarlandı.
   dosyalarını doğrudan tarayıcıya bırakabilir — her yükleme tahtada bir
   ilerleme kutusu gösterir. Misafirler yalnızca kendi oluşturdukları
   ögeleri silebilir. *Web Bağlantısı Oluştur (İnternet)* tahtayı yerel ağ
-  dışına açar (localhost.run tüneli)
+  dışına açar (localhost.run tüneli). Bağlantı koptuğunda kendini toparlar:
+  sınırsız yeniden bağlanma, tüneli açık tutan canlılık sinyalleri ve
+  WebSocket engelliyse HTTP yoklaması
 * Türkçe ve İngilizce arayüz (Ayarlar -> Çeşitli -> Dil)
 * Ayarlanabilir aralıkla otomatik kaydetme
 
@@ -100,6 +136,34 @@ Kaynak koddan çalıştırmak için:
    pip install -r requirements/dev.txt
    python -m xref
 
+What's New in 0.5.0
+-------------------
+
+* **PureRef-style reference grid** (Settings -> Appearance -> Reference
+  Grid): dot grid, square grid or off. The grid lives on the canvas, so it
+  zooms and pans together with the images; the spacing is adjustable between
+  10 and 500 px. Its colour follows the canvas (a light tint on a dark board,
+  a dark one on a light board), it thins out when it gets too dense, and it
+  does not swim while you pan
+* **Snap to grid** (Settings -> Appearance -> Snap to Grid): while dragging,
+  an item jumps to the nearest grid intersection. It only applies to mouse
+  drags, so loading files, *Arrange* and undo/redo keep exact positions
+* **three.js OrbitControls 3D navigation**: drag a model to move it on the
+  board, then **Ctrl+click** it to take its camera over (left-drag orbits,
+  right-drag pans, middle-drag or the wheel zooms, Shift swaps orbit and
+  pan). Ctrl+click again, or press Escape, to move it again
+* **Model orientation fixed**: the image coming back from F3D was placed
+  upside down; every model now opens the right way up. The *Default 3D Model
+  Up Axis* setting (Settings -> Performance) really switches between Z, Y
+  and X
+* **Smoother 3D preview**: the black-frame flashing is gone, the last good
+  frame is always drawn, and every label plus the axis gizmo was removed from
+  the model - hovering no longer rotates it
+* **More resilient web sharing**: the server sends a WebSocket heartbeat
+  every 20 seconds, dropped connections retry with no attempt limit, a
+  watchdog catches half-open sockets, and the page falls back to HTTP
+  polling when WebSockets are blocked
+
 Features
 --------
 
@@ -115,16 +179,21 @@ Features
   (Settings -> View -> Remember Scene Layouts)
 * Infinite canvas with pan, zoom, rotate, flip, crop, arrange (including
   randomly) and normalize; the canvas colour is configurable
+* PureRef-style reference grid with dots or squares, an adjustable spacing
+  and optional snapping while dragging (Settings -> Appearance)
 * Video playback with a DaVinci-Resolve-like hover scrub (red playhead), a
   remembered preview frame, play/pause, mute and volume controls; a single
   click locks the frame under the pointer
 * PDFs behave like videos: hover to flip through the pages, the last shown page
   is remembered and restored when the board is opened again; a single click
   locks the page
-* 3D models: rotate by moving the mouse over the model, click to pin the view,
-  wheel to zoom. On Windows, models are rendered with GPU acceleration by
-  F3D/libf3d; for USD/USDZ formats unavailable in the F3D readers, OpenUSD
-  reads the geometry and F3D renders it on the GPU
+* 3D models navigated exactly like three.js OrbitControls: drag a model to
+  move it on the board, **Ctrl+click** it to take its camera over (left-drag
+  orbits, right-drag pans, middle-drag or the wheel zooms, Shift swaps orbit
+  and pan), Ctrl+click again or press Escape to move it again. On Windows,
+  models are rendered with GPU acceleration by F3D/libf3d; for USD/USDZ
+  formats unavailable in the F3D readers, OpenUSD reads the geometry and F3D
+  renders it on the GPU
 * Media titles: images, videos, PDFs and models can show their file name on
   the canvas (Settings -> Miscellaneous -> Show Media Titles)
 * Node-editor style links between items: **Shift+drag** from one item to
@@ -147,7 +216,9 @@ Features
   their cursor) and can drop media files straight into the browser - each
   upload shows a progress placeholder on the board. Guests may only delete
   the items they created themselves. *Create Web Link (Internet)* exposes the
-  board outside the local network through a plain-SSH tunnel (localhost.run)
+  board outside the local network through a plain-SSH tunnel (localhost.run).
+  Connections recover on their own: unlimited reconnects, heartbeats that
+  keep the tunnel warm, and HTTP polling when WebSockets are blocked
 * Turkish and English interface (Settings -> Miscellaneous -> Language)
 * Autosave with a configurable interval
 

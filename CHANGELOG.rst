@@ -1,3 +1,34 @@
+0.5.0 (2026-11-04)
+==================
+
+PureRef style grid, three.js 3D navigation
+------------------------------------------
+
+* The **reference grid is back**, now modelled on PureRef: a dot grid, a
+  square grid or off, with an adjustable spacing (10-500 px) and optional
+  snapping while dragging (Settings -> Appearance). The grid is painted on
+  the canvas, so it zooms and pans with the images; its colour follows the
+  canvas colour, it thins out once the spacing falls below a few screen
+  pixels, and it starts on a grid multiple so the dots do not swim while
+  panning. Snapping only applies to interactive drags, so loading, Arrange
+  and undo keep exact positions.
+* **3D navigation was rewritten** as a port of three.js OrbitControls
+  (``xref/modelnav.py``): same defaults, mouse mapping, damping and maths.
+  A plain drag now moves the model on the board and **Ctrl+click** takes its
+  camera over; Ctrl+click again or Escape gives it back. Hovering no longer
+  rotates the model.
+* **Fixed 3D models being drawn upside down**: the image returned by F3D has
+  bottom-up (OpenGL) rows and was wrapped into a top-down QImage.
+* Fixed the black-frame flashing while dragging a model: the last good frame
+  is kept and only the software renderer is throttled.
+* Removed every overlay from 3D models (axis gizmo, file name, hint box,
+  lock indicator, angle/zoom bar, placeholder text) and the red hover line
+  that only belongs to media items.
+* **Web sharing is more resilient**: the server sends a WebSocket heartbeat
+  every 20 seconds, the page reconnects without an attempt limit, a watchdog
+  detects half-open sockets, and polling stops once the socket recovers.
+
+
 * The web view mirrors the desktop canvas: the canvas colour, the background
   grid (style and spacing) and media titles travel with the snapshot,
   so everyone sees the same board. Large media now streams to browsers in
