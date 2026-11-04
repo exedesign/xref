@@ -1847,7 +1847,7 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             yaw, pitch = self.VIEW_PRESETS[self._initial_view_preset]
         self._f3d_controls_active = False
         self._f3d_camera_revision = 0
-        self._f3d_interaction_button = None
+        self._f3d_nav_action = None
         self._f3d_interaction_pos = QtCore.QPoint()
         self._f3d_controls_timer = None
         self._mesh = mesh
@@ -1864,7 +1864,6 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         self._hover_pos = None
         self._frame_locked = False
         self._click_pos = None
-        self._dragging_rotation = None
         self._camera_drag_last_pos = None
         self._render_zoom = self._zoom
         self._render_cache = None
@@ -2141,76 +2140,64 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
     def deactivate_f3d_controls(self):
         if self._f3d_controls_timer is not None:
             self._f3d_controls_timer.stop()
+        self._f3d_nav_action = None
         if self._renderer is not None:
-            if self._f3d_interaction_button is not None:
-                self._f3d_camera_state = self._renderer.end_interaction(
-                    self._f3d_interaction_button,
-                    self._f3d_interaction_pos.x(),
-                    self._f3d_interaction_pos.y())
-            cancel_pending = getattr(
-                type(self._renderer), 'cancel_pending_controls', None)
-            if cancel_pending is not None:
-                self._renderer.cancel_pending_controls()
+            self._renderer.cancel_pending_controls()
             self._renderer.set_native_interaction(False)
             self._f3d_camera_state = self._renderer.camera_state()
         self._f3d_controls_active = False
-        self._f3d_interaction_button = None
         self._refresh_tooltip()
         self.update()
 
-    def begin_f3d_orbit(self, pos):
-        if self._renderer is None:
-            return
-        self._f3d_interaction_pos = QtCore.QPoint(pos)
+    # -- three.js style navigation -----------------------------------------
 
-    def update_f3d_orbit(self, pos):
+    def begin_f3d_nav(self, action, pos):
+        """Starts a three.js style drag: ``rotate``, ``pan`` or ``dolly``."""
+
         if self._renderer is None:
+            return None
+        self._f3d_nav_action = action
+        self._f3d_interaction_pos = QtCore.QPoint(pos)
+        return self._renderer.camera_state()
+
+    def update_f3d_nav(self, pos):
+        """Feeds the pointer delta of the active action to the controls."""
+
+        if self._renderer is None or self._f3d_nav_action is None:
             return
         position = QtCore.QPoint(pos)
         previous = self._f3d_interaction_pos
         if previous == position:
             return
         self._f3d_interaction_pos = position
-        self._f3d_camera_state =         self._renderer.orbit(
-            (previous.x(), previous.y()),
-            (position.x(), position.y()),
-            max(1, int(self._width)), max(1, int(self._height)))
+        delta_x = position.x() - previous.x()
+        delta_y = position.y() - previous.y()
+        height = max(1, int(self._height))
+        if self._f3d_nav_action == 'rotate':
+            self._renderer.rotate(delta_x, delta_y, height)
+        elif self._f3d_nav_action == 'pan':
+            self._renderer.pan(delta_x, delta_y, height)
+        else:
+            # three.js dollies one 0.95 step per 100px of vertical drag.
+            self._renderer.dolly(0.95 ** (delta_y / 100.0))
         self._schedule_f3d_controls_update()
 
-    def begin_f3d_pan(self, pos):
-        self._f3d_interaction_pos = QtCore.QPoint(pos)
+    def end_f3d_nav(self, pos=None):
+        """Ends the drag but lets the damped motion settle."""
 
-    def update_f3d_pan(self, pos):
-        if self._renderer is None:
-            return
-        pos = QtCore.QPoint(pos)
-        delta = pos - self._f3d_interaction_pos
-        self._f3d_interaction_pos = pos
-        self._renderer.queue_pan(
-            delta.x(), delta.y(), max(1, self._height))
+        if pos is not None:
+            self.update_f3d_nav(pos)
+        self._f3d_nav_action = None
         self._schedule_f3d_controls_update()
-
-    def begin_f3d_dolly(self, pos):
-        self._f3d_interaction_pos = QtCore.QPoint(pos)
-
-    def update_f3d_dolly(self, pos):
         if self._renderer is None:
-            return
-        position = QtCore.QPoint(pos)
-        delta_y = position.y() - self._f3d_interaction_pos.y()
-        self._f3d_interaction_pos = position
-        if delta_y:
-            self._f3d_camera_state = self._renderer.dolly(
-                0.95 ** (-delta_y / 100))
-            self._f3d_camera_revision += 1
-            self.update()
+            return None
+        return self._renderer.camera_state()
 
     def _schedule_f3d_controls_update(self):
-        if (self._renderer is not None
-                and callable(getattr(
-                    type(self._renderer), 'advance_controls', None))):
-            self._ensure_f3d_controls_timer()
-            self._f3d_controls_timer.start()
+        if self._renderer is None:
+            return
+        self._ensure_f3d_controls_timer()
+        self._f3d_controls_timer.start()
 
     def advance_f3d_controls(self):
         if self._f3d_controls_timer is None:
@@ -2218,112 +2205,45 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         if self._renderer is None:
             self._f3d_controls_timer.stop()
             return
-        advance = getattr(
-            type(self._renderer), 'advance_controls', None)
-        if advance is None:
+        try:
+            state, pending = self._renderer.update()
+        except (TypeError, ValueError):
+            # A renderer without the three.js update() contract.
             self._f3d_controls_timer.stop()
             return
-        self._f3d_camera_state, pending = (
-            self._renderer.advance_controls())
+        self._f3d_camera_state = state
         self._f3d_camera_revision += 1
         self.update()
         if not pending:
             self._f3d_controls_timer.stop()
 
-    def scroll_f3d_interaction(self, direction, pos, steps=1.0):
+    def f3d_wheel(self, steps, pos=None):
+        """``controls.wheel()``: positive ``steps`` zoom in, negative out."""
+
         if self._renderer is None:
             return
-        self._f3d_interaction_pos = QtCore.QPoint(pos)
-        factor = 0.95 ** abs(float(steps))
-        if direction == 'backward':
-            factor = 1 / factor
-        elif direction != 'forward':
-            raise ValueError(f'Unsupported scroll direction: {direction}')
-        self._f3d_camera_state = self._renderer.dolly(factor)
+        if pos is not None:
+            self._f3d_interaction_pos = QtCore.QPoint(pos)
+        self._f3d_camera_state = self._renderer.wheel(steps)
         self._f3d_camera_revision += 1
+        self._schedule_f3d_controls_update()
         self.update()
 
     def set_f3d_axis_view(self, axis, positive=True):
+        """Snaps to an axis, like clicking three.js' ViewHelper."""
+
         if self._renderer is None:
             return False
         if self._f3d_controls_timer is not None:
             self._f3d_controls_timer.stop()
-        cancel_pending = getattr(
-            type(self._renderer), 'cancel_pending_controls', None)
-        if cancel_pending is not None:
-            self._renderer.cancel_pending_controls()
+        self._renderer.cancel_pending_controls()
         self._f3d_camera_state = self._renderer.set_axis_view(
-            axis, positive)
+            axis, positive, animate=True)
         self._f3d_camera_revision += 1
         self._render_cache = None
+        self._schedule_f3d_controls_update()
         self.update()
         return True
-
-    def f3d_gizmo_geometry(self):
-        margin = self.fixed_length_for_viewport(16)
-        length = self.fixed_length_for_viewport(34)
-        origin = QtCore.QPointF(
-            self._width - margin - length, margin + length)
-        toward_camera = (1 / math.sqrt(3), -1 / math.sqrt(3),
-                         1 / math.sqrt(3))
-        forward = tuple(-value for value in toward_camera)
-        world_up = (0.0, 0.0, 1.0)
-        right = (
-            forward[1] * world_up[2] - forward[2] * world_up[1],
-            forward[2] * world_up[0] - forward[0] * world_up[2],
-            forward[0] * world_up[1] - forward[1] * world_up[0],
-        )
-        right_length = math.sqrt(sum(value * value for value in right))
-        right = tuple(value / right_length for value in right)
-        camera_up = (
-            right[1] * forward[2] - right[2] * forward[1],
-            right[2] * forward[0] - right[0] * forward[2],
-            right[0] * forward[1] - right[1] * forward[0],
-        )
-
-        directions = {
-            'x': (1.0, 0.0, 0.0),
-            'y': (0.0, 1.0, 0.0),
-            'z': (0.0, 0.0, 1.0),
-        }
-        endpoints = {}
-        depths = {}
-        for axis, direction in directions.items():
-            for positive in (True, False):
-                sign = 1 if positive else -1
-                vector = tuple(sign * value for value in direction)
-                screen_x = sum(vector[i] * right[i] for i in range(3))
-                screen_y = -sum(
-                    vector[i] * camera_up[i] for i in range(3))
-                key = (axis, positive)
-                endpoints[key] = QtCore.QPointF(
-                    origin.x() + screen_x * length,
-                    origin.y() + screen_y * length)
-                depths[key] = sum(
-                    vector[i] * toward_camera[i] for i in range(3))
-        hit_radius = self.fixed_length_for_viewport(10)
-        bounds = QtCore.QRectF(
-            origin.x() - length - hit_radius,
-            origin.y() - length - hit_radius,
-            2 * (length + hit_radius),
-            2 * (length + hit_radius))
-        return origin, endpoints, depths, hit_radius, bounds
-
-    def f3d_gizmo_axis_at(self, pos):
-        origin, endpoints, depths, hit_radius, bounds = (
-            self.f3d_gizmo_geometry())
-        pos = QtCore.QPointF(pos)
-        if not bounds.contains(pos):
-            return None
-        candidates = []
-        for key, endpoint in endpoints.items():
-            distance = math.hypot(
-                endpoint.x() - pos.x(), endpoint.y() - pos.y())
-            if distance <= hit_radius:
-                candidates.append((distance, -depths[key], key))
-        if not candidates:
-            return None
-        return min(candidates)[2]
 
     def _apply_decimation(self):
         """Re-reduces the parsed mesh with the current quality setting."""
@@ -2479,7 +2399,9 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
                              max(0, self._width - 2 * margin), height)
 
     def _controls_visible(self):
-        return self._hovered or self._frame_locked
+        # 3D models are navigated directly with the mouse: no overlay bar,
+        # label or hint is ever painted on top of the model.
+        return False
 
     def is_control_hit(self, scene_pos):
         return self._controls_visible() and self._controls_rect().contains(
@@ -2492,8 +2414,8 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
             return
         if self._f3d_controls_active:
             self.setToolTip(
-                tr('F3D controls active; press Escape or click outside the '
-                   'model to return to canvas controls'))
+                tr('Camera control active; press Ctrl and click the model '
+                   'again or press Escape to move it instead'))
             return
         if self._frame_locked:
             self.setToolTip(tr('Click to rotate the model again'))
@@ -2516,32 +2438,20 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
         super().hoverEnterEvent(event)
 
     def hoverMoveEvent(self, event):
+        """Tracking the pointer must never move the model.
+
+        The camera only changes through an explicit click followed by a
+        drag, so passing the pointer over a model leaves the view alone.
+        """
+
         super().hoverMoveEvent(event)
-        pos = event.pos()
-        self._hover_pos = pos
-        scene = self.scene()
-        dragging = scene is not None and scene.active_mode is not None
-        if (not self._frame_locked and not self._f3d_controls_active
-                and not dragging
-                and self.bounding_rect_unselected().contains(pos)
-                and not self._controls_rect().contains(pos)):
-            yaw = (pos.x() / max(1.0, self._width)) * 360
-            pitch = 90 - (pos.y() / max(1.0, self._height)) * 180
-            if self._dragging_rotation is not None:
-                last_x, last_y = self._dragging_rotation
-                yaw = (self._display_yaw + (pos.x() - last_x) * 0.6) % 360
-                pitch = max(-89.0, min(89.0,
-                            self._display_pitch - (pos.y() - last_y) * 0.6))
-            self.set_view(yaw=yaw, pitch=pitch, pin=True)
-            self._dragging_rotation = (pos.x(), pos.y())
+        self._hovered = True
+        self._hover_pos = event.pos()
         self.update()
 
     def hoverLeaveEvent(self, event):
         self._hovered = False
         self._hover_pos = None
-        self._dragging_rotation = None
-        self._display_yaw = self._current_yaw
-        self._display_pitch = self._current_pitch
         self.update()
         super().hoverLeaveEvent(event)
 
@@ -2612,174 +2522,68 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
     def paint(self, painter, option, widget):
         rect = self.bounding_rect_unselected()
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        self.paint_media_title(painter, rect, self.filename)
-
         if not self._ensure_mesh():
             self._paint_placeholder(painter, rect)
         else:
             self._paint_model(painter, rect)
-
-        if self._hovered and self._hover_pos:
-            pen = QtGui.QPen(QtGui.QColor(255, 60, 60))
-            pen.setCosmetic(True)
-            pen.setWidth(2)
-            painter.setPen(pen)
-            x = max(0, min(self._width, self._hover_pos.x()))
-            painter.drawLine(QtCore.QPointF(x, 0),
-                             QtCore.QPointF(x, self._height))
-        if self._frame_locked:
-            self.paint_lock_indicator(painter)
-        if self._controls_visible():
-            self._paint_controls(painter)
-        if model3d.F3D_ENABLED and self._renderer is not None:
-            self._paint_f3d_gizmo(painter)
-        if self._f3d_controls_active:
-            self._paint_f3d_controls_hint(painter)
         self.paint_selectable(painter, option, widget)
 
     def _paint_placeholder(self, painter, rect):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QtGui.QBrush(QtGui.QColor(35, 35, 40)))
         painter.drawRect(rect)
-        painter.setPen(QtGui.QColor(230, 230, 230))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter,
-                         tr('3D model could not be loaded'))
-
-    def _paint_f3d_controls_hint(self, painter):
-        margin = self.fixed_length_for_viewport(8)
-        font = painter.font()
-        font.setPointSizeF(max(7.0, self.fixed_length_for_viewport(9)))
-        painter.save()
-        painter.setFont(font)
-        lines = (
-            tr('LMB: orbit  |  RMB: pan'),
-            tr('MMB/Wheel: zoom  |  Click axes: align'),
-        )
-        metrics = QtGui.QFontMetricsF(font)
-        width = min(
-            self._width - 2 * margin,
-            max(metrics.horizontalAdvance(line) for line in lines)
-            + 2 * margin)
-        height = len(lines) * metrics.height() + (len(lines) + 1) * margin
-        hint_rect = QtCore.QRectF(
-            margin, self._height - height - margin, width, height)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QtGui.QColor(0, 0, 0, 190))
-        painter.drawRoundedRect(hint_rect, margin, margin)
-        painter.setPen(QtGui.QColor(255, 255, 255))
-        for index, line in enumerate(lines):
-            line_rect = QtCore.QRectF(
-                hint_rect.left() + margin,
-                hint_rect.top() + margin + index * metrics.height(),
-                hint_rect.width() - 2 * margin,
-                metrics.height())
-            painter.drawText(
-                line_rect,
-                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                line)
-        painter.restore()
-
-    def _paint_f3d_gizmo(self, painter):
-        origin, endpoints, depths, radius, bounds = (
-            self.f3d_gizmo_geometry())
-        colors = {
-            'x': QtGui.QColor(238, 83, 80),
-            'y': QtGui.QColor(102, 187, 106),
-            'z': QtGui.QColor(66, 165, 245),
-        }
-        margin = self.fixed_length_for_viewport(5)
-        painter.save()
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QtGui.QColor(20, 22, 27, 205))
-        painter.drawRoundedRect(
-            bounds.adjusted(-margin, -margin, margin, margin),
-            margin * 2, margin * 2)
-
-        line_pen = QtGui.QPen()
-        line_pen.setWidthF(self.fixed_length_for_viewport(2))
-        line_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        for axis in ('x', 'y', 'z'):
-            color = colors[axis]
-            for positive in (True, False):
-                endpoint = endpoints[(axis, positive)]
-                line_pen.setColor(color)
-                painter.setPen(line_pen)
-                painter.drawLine(QtCore.QLineF(origin, endpoint))
-
-        font = painter.font()
-        font.setBold(True)
-        font.setPointSizeF(max(7.0, self.fixed_length_for_viewport(8)))
-        painter.setFont(font)
-        draw_order = sorted(endpoints, key=lambda key: depths[key])
-        for axis, positive in draw_order:
-            endpoint = endpoints[(axis, positive)]
-            color = colors[axis]
-            radius = self.fixed_length_for_viewport(
-                8 if positive else 7)
-            painter.setPen(QtGui.QPen(color, self.fixed_length_for_viewport(2)))
-            painter.setBrush(
-                color if positive else QtGui.QColor(20, 22, 27, 245))
-            painter.drawEllipse(endpoint, radius, radius)
-            painter.setPen(color if not positive else QtGui.QColor(255, 255, 255))
-            label = axis.upper() if positive else '-'
-            label_rect = QtCore.QRectF(
-                endpoint.x() - radius, endpoint.y() - radius,
-                2 * radius, 2 * radius)
-            painter.drawText(label_rect, Qt.AlignmentFlag.AlignCenter, label)
-
-        center_radius = self.fixed_length_for_viewport(3)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QtGui.QColor(220, 220, 220))
-        painter.drawEllipse(origin, center_radius, center_radius)
-        painter.restore()
 
     def _paint_model(self, painter, rect):
         """Draws the cached projection of the mesh.
 
-        The mesh is rendered offscreen into a QImage. Rotating only
-        invalidates the cache; while the mouse keeps moving, previews are
-        refreshed at most PREVIEW_INTERVAL_MS apart so huge meshes stay
-        responsive.
+        The mesh is rendered offscreen into a QImage. Rotating invalidates
+        the cache; the last good frame is always drawn, so a slow frame can
+        never leave the item empty.
         """
 
         if self._mesh is None and self._renderer is None:
             return
+        image = None
         cache = self._render_cache
         if cache is not None:
-            key, image = cache
-            if key != self._render_key():
-                cache = None
-        if cache is None:
-            hovering = self._hovered and not self._frame_locked
-            current = QtCore.QDateTime.currentMSecsSinceEpoch()
-            try:
-                interval = int(self._model_settings().valueOrDefault(
-                    'Items/model_preview_interval'))
-            except (TypeError, ValueError):
-                interval = self.PREVIEW_INTERVAL_MS
-            if (hovering
-                    and interval > 0
-                    and (self._renderer is not None
-                         or (self._triangles_shown
-                             and self._triangles_shown > 20000))
-                    and current - self._last_preview_ms < interval):
-                # Too soon for a new preview of a heavy mesh
+            key, cached_image = cache
+            if key == self._render_key():
+                painter.drawImage(rect, cached_image)
                 return
-            try:
-                image = self._render_projection(rect)
-            except Exception as e:
-                if self._renderer is None:
-                    raise
-                logger.exception(f'Could not render 3D model {self.filename}')
-                self._renderer.close()
-                self._renderer = None
-                self._f3d_load_attempted = True
-                self._load_error = str(e)
-                self._refresh_tooltip()
-                return
-            self._render_cache = (self._render_key(), image)
-            if hovering:
-                self._last_preview_ms = current
+            # Remember the previous frame so an in-flight update never
+            # leaves the model empty (which reads as a black flash).
+            image = cached_image
+        hovering = self._hovered and not self._frame_locked
+        current = QtCore.QDateTime.currentMSecsSinceEpoch()
+        try:
+            interval = int(self._model_settings().valueOrDefault(
+                'Items/model_preview_interval'))
+        except (TypeError, ValueError):
+            interval = self.PREVIEW_INTERVAL_MS
+        # Only the software renderer needs throttling; the GPU backend
+        # keeps up on its own.
+        heavy = bool(self._triangles_shown
+                     and self._triangles_shown > 20000)
+        if (hovering and interval > 0 and self._renderer is None and heavy
+                and current - self._last_preview_ms < interval):
+            if image is not None:
+                painter.drawImage(rect, image)
+            return
+        try:
+            image = self._render_projection(rect)
+        except Exception as e:
+            if self._renderer is None:
+                raise
+            logger.exception(f'Could not render 3D model {self.filename}')
+            self._renderer.close()
+            self._renderer = None
+            self._f3d_load_attempted = True
+            self._load_error = str(e)
+            self._refresh_tooltip()
+            return
+        self._render_cache = (self._render_key(), image)
+        if hovering:
+            self._last_preview_ms = current
         painter.drawImage(rect, image)
 
     def _render_key(self):
@@ -2809,9 +2613,12 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
                     or image_format is None):
                 raise ValueError(
                     'F3D returned an unsupported image pixel format')
+            # f3d hands back OpenGL style bottom-up rows; QImage expects the
+            # first row to be the top one, so flip vertically or every model
+            # would be drawn upside down.
             return QtGui.QImage(
                 rendered.content, width, height, width * channels,
-                image_format).copy()
+                image_format).mirrored(False, True)
 
         image = QtGui.QImage(width, height, QtGui.QImage.Format.Format_RGB32)
         image.fill(QtGui.QColor(0, 0, 0))
@@ -2911,20 +2718,6 @@ class XRefModelItem(XRefItemMixin, QtWidgets.QGraphicsItem):
                 int(base[2] * light))
             painter.setBrush(color)
             painter.drawPath(path)
-
-    def _paint_controls(self, painter):
-        rect = self._controls_rect()
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QtGui.QColor(0, 0, 0, 160))
-        painter.drawRect(rect)
-        painter.setPen(QtGui.QColor(230, 230, 230))
-        font = painter.font()
-        font.setPointSizeF(max(1.0, self._ui(9)))
-        painter.setFont(font)
-        painter.drawText(
-            rect, Qt.AlignmentFlag.AlignCenter,
-            f'{int(self._display_yaw)}\u00b0 / {int(self._display_pitch)}'
-            f'\u00b0  x{self._zoom:.1f}')
 
 
 @register_item

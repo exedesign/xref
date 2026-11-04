@@ -58,26 +58,42 @@ if (!code) {
 const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 let ws = null;
 let wsRetries = 0;
+let wsLive = false;
+let wsPoll = null;
+let wsWatchdog = null;
+let lastMessageAt = 0;
+// A half-open socket (very common through tunnels and NAT) never fires
+// 'close', so treat a long silence as a dead link and reconnect.
+const WS_SILENCE_MS = 45000;
+const WS_MAX_BACKOFF_MS = 8000;
+
 function connectWs() {
+  if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+  lastMessageAt = Date.now();
   ws = new WebSocket(
       `${wsProto}://${location.host}/ws?code=${encodeURIComponent(code)}`);
   ws.onopen = onWsOpen;
   ws.onclose = (ev) => {
+    wsLive = false;
     statusEl.textContent = (ev.code === 1006)
         ? 'bağlantı koptu, yeniden deniyor...'
         : 'disconnected (' + ev.code + ')';
     statusEl.style.color = '#ff9f6b';
-    // Auto-reconnect with backoff
-    if (wsRetries < 12) {
-      wsRetries++;
-      setTimeout(connectWs, Math.min(1000 * wsRetries, 8000));
-    }
+    // Retry forever with a capped backoff: sharing can stay open for
+    // hours, so giving up after a fixed number of tries would leave the
+    // page dead after a short network glitch.
+    wsRetries++;
+    setTimeout(connectWs, Math.min(700 * wsRetries, WS_MAX_BACKOFF_MS));
   };
   ws.onerror = () => {
+    wsLive = false;
     statusEl.textContent = 'bağlantı hatası, yeniden deneniyor...';
     statusEl.style.color = '#ff6b6b';
   };
-  ws.onmessage = onWsMessage;
+  ws.onmessage = (ev) => {
+    lastMessageAt = Date.now();
+    onWsMessage(ev);
+  };
   // If the socket never even opens, fall back to HTTP polling (some
   // browsers/networks block cross-origin WSS through the tunnel)
   setTimeout(() => {
@@ -85,11 +101,22 @@ function connectWs() {
   }, 5000);
 }
 
+// Drops a socket that stopped delivering data, so onclose runs and the
+// normal reconnect path takes over.
+function startWatchdog() {
+  if (wsWatchdog !== null) return;
+  wsWatchdog = setInterval(() => {
+    if (!ws || ws.readyState !== 1) return;
+    if (Date.now() - lastMessageAt < WS_SILENCE_MS) return;
+    statusEl.textContent = 'bağlantı yanıt vermiyor, yeniden bağlanıyor...';
+    statusEl.style.color = '#ff9f6b';
+    try { ws.close(); } catch (e) { /* already gone */ }
+  }, 5000);
+}
+
 // HTTP polling fallback: fetches the snapshot every 3 seconds
-let wsLive = false;
-let wsPoll = null;
-let pollETag = 0;
 function startPolling() {
+  if (wsPoll !== null) return;
   wsPoll = setInterval(async () => {
     try {
       const r = await fetch(
@@ -100,14 +127,23 @@ function startPolling() {
       if (text && text !== lastSnapshotText) {
         lastSnapshotText = text;
         onWsMessage({data: text});
-        statusEl.textContent = 'live (poll)';
+        if (!wsLive) statusEl.textContent = 'live (poll)';
       }
     } catch (e) { /* offline; retry next tick */ }
   }, 3000);
 }
+
+function stopPolling() {
+  if (wsPoll !== null) {
+    clearInterval(wsPoll);
+    wsPoll = null;
+  }
+}
+
 let lastSnapshotText = '';
 if (code) {
   connectWs();
+  startWatchdog();
   // The tunnel URL changes when sharing restarts; an old page can
   // never reconnect - tell the user instead of retrying forever
   setTimeout(() => {
@@ -372,6 +408,9 @@ function send(ops) {
 function onWsOpen() {
   wsRetries = 0;
   wsLive = true;
+  lastMessageAt = Date.now();
+  // The socket works, so the polling fallback is no longer needed
+  stopPolling();
   statusEl.style.color = '';
   statusEl.textContent = 'connected';
   // If no snapshot arrives, surface it instead of hanging silently

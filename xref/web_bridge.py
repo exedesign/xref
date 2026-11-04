@@ -45,6 +45,12 @@ class WebBridge(QtCore.QObject):
     #: Emitted on the Qt thread with a JSON payload from a web client
     web_message = QtCore.pyqtSignal(dict)
 
+    #: Seconds between WebSocket keep-alive pings. Tunnels, NAT routers and
+    #: proxies silently drop connections that look idle, and a half-open
+    #: socket never fires ``close``; a ping every few seconds keeps the
+    #: path warm and makes a dead peer surface within two intervals.
+    HEARTBEAT_SECONDS = 20.0
+
     def __init__(self, collab_session, code):
         super().__init__()
         self.session = collab_session
@@ -155,7 +161,12 @@ class WebBridge(QtCore.QObject):
                             headers={'Cache-Control': 'no-store'})
 
     async def _handle_ws(self, request):
-        ws = web.WebSocketResponse(max_msg_size=64 * 1024 * 1024)
+        ws = web.WebSocketResponse(
+            max_msg_size=64 * 1024 * 1024,
+            heartbeat=self.HEARTBEAT_SECONDS,
+            autoping=True,
+            receive_timeout=None,
+        )
         await ws.prepare(request)
         code = request.query.get('code', '')
         if code != self.code:
@@ -228,15 +239,31 @@ class WebBridge(QtCore.QObject):
         if not self.clients or self._loop is None:
             return
         data = json.dumps(payload, separators=(',', ':'))
-        self._loop.call_soon_threadsafe(
-            lambda: asyncio.ensure_future(self._broadcast_async(data)))
+        try:
+            self._loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(self._broadcast_async(data)))
+        except RuntimeError:
+            # The server loop is already closed; the bridge is shutting down
+            logger.debug('Web broadcast skipped, server loop is closed')
 
     async def _broadcast_async(self, data):
         dead = []
         for ws in list(self.clients):
+            # Closed sockets stay in the set until the handler unwinds;
+            # skipping them avoids the noisy exception below.
+            if ws.closed:
+                dead.append(ws)
+                continue
             try:
                 await ws.send_str(data)
+            except (ConnectionResetError, ConnectionError,
+                    asyncio.CancelledError):
+                dead.append(ws)
             except Exception:  # noqa: BLE001 - disconnected client
+                logger.debug('Web broadcast to a client failed',
+                             exc_info=True)
                 dead.append(ws)
         for ws in dead:
             self.clients.discard(ws)
+            logger.debug('Dropped a disconnected web client '
+                         '(%d left)', len(self.clients))

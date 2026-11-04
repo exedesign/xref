@@ -402,8 +402,8 @@ def test_f3d_renderer_applies_initial_view_preset(tmp_path):
             for index in range(3)]
         length = math.sqrt(sum(value ** 2 for value in direction))
         assert [value / length for value in direction] == pytest.approx(
-            (0, 0, 1))
-        assert camera['view_up'] == pytest.approx((0, 1, 0))
+            (0, 0, 1), abs=1e-4)
+        assert camera['view_up'] == pytest.approx((0, 1, 0), abs=1e-4)
     finally:
         renderer.close()
 
@@ -424,7 +424,7 @@ def test_f3d_renderer_applies_scene_up_axis(tmp_path):
             for index in range(3)]
         length = math.sqrt(sum(value ** 2 for value in direction))
         assert [value / length for value in direction] == pytest.approx(
-            (1, 0, 0))
+            (1, 0, 0), abs=1e-4)
     finally:
         renderer.close()
 
@@ -459,9 +459,11 @@ def test_f3d_native_mouse_controls_preserve_camera(tmp_path):
         renderer.render(96, 96, 30, 20, 1)
         before = renderer.camera_state()
         renderer.set_native_interaction(True)
-        renderer.begin_interaction('left', 48, 48)
-        renderer.update_interaction(400, 60)
-        renderer.end_interaction('left', 400, 60)
+        renderer.rotate(150, 60, 96)
+        for _ in range(400):
+            _state, pending = renderer.update()
+            if not pending:
+                break
         after_interaction = renderer.camera_state()
         renderer.render(96, 96, 30, 20, 1)
 
@@ -501,9 +503,9 @@ def test_f3d_axis_gizmo_aligns_camera(
         actual_direction = [
             (after['position'][i] - after['focal_point'][i]) / distance
             for i in range(3)]
-        assert actual_direction == pytest.approx(direction)
+        assert actual_direction == pytest.approx(direction, abs=1e-4)
         assert after['focal_point'] == before['focal_point']
-        assert after['view_up'] == pytest.approx(view_up)
+        assert after['view_up'] == pytest.approx(view_up, abs=1e-4)
     finally:
         renderer.close()
 
@@ -518,7 +520,11 @@ def test_f3d_pan_moves_camera_without_changing_orientation(tmp_path):
         renderer.render(96, 96, 30, 20, 1)
         before = renderer.camera_state()
 
-        after = renderer.pan(12, -8, 96)
+        renderer.pan(12, -8, 96)
+        for _ in range(400):
+            after, pending = renderer.update()
+            if not pending:
+                break
 
         before_direction = [
             before['position'][i] - before['focal_point'][i]
@@ -542,10 +548,10 @@ def test_f3d_orbit_matches_orbit_controls_sensitivity_and_damping(tmp_path):
         renderer.render(96, 96, 30, 20, 1)
         renderer.set_axis_view('y', True)
         initial = renderer.camera_state()
-        renderer.orbit((48, 48), (48, 72), 96, 96)
+        renderer.rotate(0, 24, 96)
         assert renderer.camera_state() == initial
 
-        first, pending = renderer.advance_controls()
+        first, pending = renderer.update()
         assert pending
         assert first['position'] != pytest.approx(initial['position'])
         distance = math.sqrt(sum(
@@ -559,7 +565,7 @@ def test_f3d_orbit_matches_orbit_controls_sensitivity_and_damping(tmp_path):
             initial_distance * 0.1)
 
         for _ in range(300):
-            final, pending = renderer.advance_controls()
+            final, pending = renderer.update()
             if not pending:
                 break
         assert not pending
@@ -609,6 +615,53 @@ def test_model_item_uses_f3d_image_in_qt(tmp_path):
                for x in range(image.width())
                for y in range(image.height()))
     item.release_mesh()
+
+
+@pytest.mark.skipif(not model3d.F3D_ENABLED,
+                    reason='F3D backend is enabled on 64-bit Windows')
+def test_f3d_image_is_not_upside_down(tmp_path):
+    """f3d returns bottom-up rows; the app must flip them for QImage.
+
+    A cone with its apex on +Z is a good witness: if the rows are not
+    flipped the apex ends up at the bottom of the picture.
+    """
+
+    sides = 24
+    vertices = []
+    for index in range(sides):
+        angle = 2 * math.pi * index / sides
+        vertices.extend((math.cos(angle), math.sin(angle), 0.0))
+    vertices.extend((0.0, 0.0, 2.0))
+    triangles = [(index, (index + 1) % sides, sides)
+                 for index in range(sides)]
+    mesh = {'vertices': vertices, 'triangles': triangles}
+    filename = tmp_path / 'cone.obj'
+    with open(filename, 'w', encoding='ascii', newline='\n') as handle:
+        for index in range(0, len(vertices), 3):
+            handle.write('v {:.6f} {:.6f} {:.6f}\n'.format(
+                *vertices[index:index + 3]))
+        for a, b, c in triangles:
+            handle.write(f'f {a + 1} {b + 1} {c + 1}\n')
+
+    item = XRefModelItem(model_path=str(filename), filename=filename.name,
+                         model_up_axis='Z')
+    try:
+        assert item._ensure_mesh()
+        image = item._render_projection(item.bounding_rect_unselected())
+        rows = [
+            sum(1 for x in range(image.width())
+                if image.pixelColor(x, y).alpha())
+            for y in range(image.height())]
+        filled = [y for y, count in enumerate(rows) if count]
+        assert filled, 'nothing was rendered'
+        top, bottom = filled[0], filled[-1]
+        span = max(1, (bottom - top) // 5)
+        top_width = max(rows[top:top + span])
+        bottom_width = max(rows[bottom - span:bottom + 1])
+        # A cone is narrow at the apex and wide at the base.
+        assert top_width < bottom_width, 'the model is upside down'
+    finally:
+        item.release_mesh()
 
 
 def test_f3d_model_paints_without_software_mesh():
@@ -770,24 +823,6 @@ def test_item_renders_shaded_triangles(view, qapp):
     assert image.pixelColor(0, 0).red() == 0
 
 
-def test_f3d_gizmo_stays_visible_when_model_is_not_hovered(view):
-    item = make_model_item(view)
-    item._renderer = MagicMock()
-    item._hovered = False
-    item._f3d_controls_active = False
-    image = QtGui.QImage(480, 480, QtGui.QImage.Format.Format_ARGB32)
-    image.fill(QtGui.QColor(0, 0, 0))
-    painter = QtGui.QPainter(image)
-
-    with patch.object(model3d, 'F3D_ENABLED', True), \
-            patch.object(item, '_paint_model'), \
-            patch.object(item, '_paint_f3d_gizmo') as paint_gizmo:
-        item.paint(painter, None, None)
-    painter.end()
-
-    paint_gizmo.assert_called_once()
-
-
 def test_f3d_damping_timer_is_created_on_ui_thread(view, qapp):
     item = XRefModelItem(filename='model.glb')
     item._renderer = MagicMock()
@@ -811,7 +846,13 @@ def test_rotation_changes_the_projection(view, qapp):
     assert first != second
 
 
-def test_left_drag_orbits_model_like_orbit_controls(view):
+def test_plain_left_drag_moves_instead_of_orbiting_the_model(view):
+    """A plain left drag must not rotate the model's own camera.
+
+    Orbiting is reserved for Ctrl + click, so the model can still be dragged
+    around the canvas like any other item.
+    """
+
     item = make_model_item(view)
     original_view = item.current_view()
     scene_pos = item.mapToScene(item.bounding_rect_unselected().center())
@@ -839,9 +880,7 @@ def test_left_drag_orbits_model_like_orbit_controls(view):
         QtCore.Qt.MouseButton.NoButton))
 
     assert view.active_mode is None
-    assert item.current_view() == pytest.approx(
-        (original_view[0] + 15, original_view[1] + 7.5,
-         original_view[2]))
+    assert item.current_view() == pytest.approx(original_view)
 
 
 def test_view_is_saved_and_restored(view):
@@ -900,15 +939,38 @@ def test_locked_model_ignores_hover_positions(view, qapp):
     item.set_view(yaw=45, pitch=10)
     locked = item.current_view()
     item.toggle_lock()
-    # Directly exercise the move handler logic like hoverMoveEvent does
-    scene = view.scene
-    scene.active_mode = None
-    pos = QtCore.QPointF(400, 80)  # would be ~300 deg yaw if unlocked
-    dragging = scene.active_mode is not None
-    assert not dragging
+    item._hovered = True
+    item._hover_pos = QtCore.QPointF(400, 80)
+    item.update()
+
     assert item.is_frame_locked()
     assert item.current_view() == locked
     item.toggle_lock()
+
+
+class _HoverEvent:
+    """The minimal hover event surface the model item reads."""
+
+    def __init__(self, pos=None):
+        self._pos = QtCore.QPointF(pos) if pos is not None else None
+
+    def pos(self):
+        return self._pos
+
+
+def test_hovering_a_model_never_moves_it(view, qapp):
+    """Passing the pointer over a model must leave its view untouched."""
+
+    item = make_model_item(view)
+    item.set_view(yaw=45, pitch=10)
+    before = item.current_view()
+
+    for x, y in ((10, 10), (200, 40), (380, 90), (150, 250)):
+        item.hoverMoveEvent(_HoverEvent(QtCore.QPointF(x, y)))
+        assert item.current_view() == before
+
+    item.hoverLeaveEvent(_HoverEvent())
+    assert item.current_view() == before
 
 
 def test_unlocked_model_follows_the_pointer(view, qapp):

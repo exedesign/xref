@@ -103,10 +103,10 @@ TRANSLATIONS = {
         'Right': 'Sağ',
         'Left': 'Sol',
         'Bottom': 'Alt',
-        'LMB: orbit  |  RMB: pan':
-            'Sol tuş: döndür  |  Sağ tuş: taşı',
-        'MMB/Wheel: zoom  |  Click axes: align':
-            'Orta tuş/tekerlek: yakınlaştır  |  Eksenlere tıkla: hizala',
+        'Camera control active; press Ctrl and click the model again or '
+        'press Escape to move it instead':
+            'Kamera kontrolü etkin; taşımak için Ctrl ile modele tekrar '
+            'tıklayın veya Esc tuşuna basın',
         '3D model could not be loaded': '3D model yüklenemedi',
         'Click to lock this frame': 'Bu kareyi kilitlemek için tıklayın',
         'Click to browse the frames again':

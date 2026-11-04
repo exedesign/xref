@@ -24,7 +24,7 @@ from PyQt6 import QtCore, QtGui, QtWidgets, sip
 from PyQt6.QtCore import Qt
 
 from xref.actions import ActionsMixin, actions
-from xref import collab, i18n, model3d
+from xref import collab, i18n, model3d, modelnav
 from xref.assets import XRefAssets
 from xref import commands
 from xref.config import CommandlineArgs, XRefSettings, KeyboardSettings
@@ -2084,28 +2084,61 @@ class XRefGraphicsView(MainControlsMixin,
         self.pan(self.mapFromScene(ref_point) - anchor)
         self.reset_previous_transform()
 
+    def _model_camera_gesture(self, event):
+        """Whether the press is the Ctrl/Meta + left click camera gesture."""
+
+        return (event.button() == Qt.MouseButton.LeftButton
+                and bool(event.modifiers() & (
+                    Qt.KeyboardModifier.ControlModifier
+                    | Qt.KeyboardModifier.MetaModifier)))
+
+    def deactivate_model_camera(self):
+        """Hands the camera back to the canvas."""
+
+        if self._model_camera_item is not None:
+            self._model_camera_item.deactivate_f3d_controls()
+        self._model_camera_item = None
+        self._model_camera_button = None
+        self._model_camera_drag_mode = None
+        self.active_mode = None
+
+    def toggle_model_camera(self, model_item):
+        """Turns the 3D camera of a model on, or off when already on."""
+
+        if (self._model_camera_item is model_item
+                and model_item._f3d_controls_active):
+            self.deactivate_model_camera()
+            return False
+        if not model3d.F3D_ENABLED or not model_item.activate_f3d_controls():
+            return False
+        if (self._model_camera_item is not None
+                and self._model_camera_item is not model_item):
+            self._model_camera_item.deactivate_f3d_controls()
+        self._model_camera_item = model_item
+        self._model_camera_button = None
+        self._model_camera_drag_mode = None
+        self.active_mode = None
+        self.scene.clearSelection()
+        model_item.setSelected(True)
+        return True
+
     def wheelEvent(self, event):
         pos = event.position().toPoint()
         model_item = self.model_item_at(pos)
-        if model3d.F3D_ENABLED and model_item is not None:
-            if model_item.activate_f3d_controls():
-                if (self._model_camera_item is not None
-                        and self._model_camera_item is not model_item):
-                    self._model_camera_item.deactivate_f3d_controls()
-                self._model_camera_item = model_item
-                delta = event.angleDelta().y()
-                if delta:
-                    direction = 'forward' if delta > 0 else 'backward'
-                    model_item.scroll_f3d_interaction(
-                        direction,
-                        self.model_item_position(model_item, pos),
-                        abs(delta) / 120)
-                event.accept()
-                return
-        if (self._model_camera_item is not None
-                and model_item is not self._model_camera_item):
-            self._model_camera_item.deactivate_f3d_controls()
-            self._model_camera_item = None
+        # Zooming a model camera only applies once the model has been
+        # clicked. Hovering must never take the camera over.
+        if (model3d.F3D_ENABLED
+                and model_item is not None
+                and model_item is self._model_camera_item):
+            delta = event.angleDelta().y()
+            if delta:
+                # three.js: one 0.95 dolly step per wheel notch, and
+                # scrolling up zooms in.
+                model_item.f3d_wheel(
+                    delta / 120.0,
+                    self.model_item_position(model_item, pos))
+            event.accept()
+            return
 
         action, inverted\
             = self.keyboard_settings.mousewheel_action_for_event(event)
@@ -2212,75 +2245,44 @@ class XRefGraphicsView(MainControlsMixin,
 
     def mousePressEvent(self, event):
         model_item = self.model_item_at(event.pos())
-        if event.button() == Qt.MouseButton.LeftButton:
-            if model3d.F3D_ENABLED and model_item is not None:
-                item_pos = model_item.mapFromScene(
-                    self.mapToScene(event.pos()))
-                axis_view = model_item.f3d_gizmo_axis_at(item_pos)
-                if (axis_view is not None
-                        and model_item.activate_f3d_controls()):
-                    if (self._model_camera_item is not None
-                            and self._model_camera_item is not model_item):
-                        self._model_camera_item.deactivate_f3d_controls()
-                    self._model_camera_item = model_item
-                    self._model_camera_button = None
-                    self._model_camera_drag_mode = None
-                    self.active_mode = None
-                    self.scene.clearSelection()
-                    model_item.setSelected(True)
-                    model_item.set_f3d_axis_view(*axis_view)
-                    self.setFocus(Qt.FocusReason.MouseFocusReason)
-                    event.accept()
-                    return
+
+        # Ctrl/Meta + left click toggles the 3D camera of a model. A plain
+        # drag keeps moving the item like any other canvas item, so the two
+        # gestures never fight over the same press.
+        if (model3d.F3D_ENABLED
+                and model_item is not None
+                and self._model_camera_gesture(event)):
+            self.toggle_model_camera(model_item)
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
+            event.accept()
+            return
 
         if (self._model_camera_item is not None
                 and model_item is not self._model_camera_item):
-            self._model_camera_item.deactivate_f3d_controls()
-            self._model_camera_item = None
-            self._model_camera_button = None
-            self._model_camera_drag_mode = None
-            self.active_mode = None
+            self.deactivate_model_camera()
 
-        camera_modes = {
-            Qt.MouseButton.LeftButton: 'orbit',
-            Qt.MouseButton.MiddleButton: 'dolly',
-            Qt.MouseButton.RightButton: 'pan',
-        }
-        camera_mode = camera_modes.get(event.button())
-        modifiers = event.modifiers()
-        modifier_pan = bool(modifiers and modifiers & (
-            Qt.KeyboardModifier.ControlModifier
-            | Qt.KeyboardModifier.MetaModifier
-            | Qt.KeyboardModifier.ShiftModifier))
-        if modifier_pan and event.button() == Qt.MouseButton.LeftButton:
-            camera_mode = 'pan'
-        elif modifier_pan and event.button() == Qt.MouseButton.RightButton:
-            camera_mode = 'orbit'
-        if camera_mode is not None and model_item is not None:
-            if (self._model_camera_item is not None
-                    and self._model_camera_item is not model_item):
-                self._model_camera_item.deactivate_f3d_controls()
+        # While a model camera is active the mouse drives the camera: left
+        # rotates, middle dollys, right pans and Shift swaps rotate and pan.
+        # Ctrl/Meta is reserved for leaving the mode, so it never swaps.
+        camera_mode = None
+        if (model_item is not None
+                and self._model_camera_item is model_item
+                and model_item._f3d_controls_active):
+            button_names = {
+                Qt.MouseButton.LeftButton: 'left',
+                Qt.MouseButton.MiddleButton: 'middle',
+                Qt.MouseButton.RightButton: 'right',
+            }
+            button_name = button_names.get(event.button())
+            if button_name is not None:
+                swap = []
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    swap.append('shift')
+                camera_mode = modelnav.action_for(button_name, swap)
+        if camera_mode is not None:
             local_pos = self.model_item_position(model_item, event.pos())
-            self.scene.clearSelection()
-            model_item.setSelected(True)
-            if model3d.F3D_ENABLED and model_item.activate_f3d_controls():
-                self._model_camera_item = model_item
-                self._model_camera_drag_mode = camera_mode
-                if camera_mode == 'orbit':
-                    model_item.begin_f3d_orbit(local_pos)
-                elif camera_mode == 'pan':
-                    model_item.begin_f3d_pan(local_pos)
-                else:
-                    model_item.begin_f3d_dolly(local_pos)
-            else:
-                self._model_camera_item = model_item
-                self._model_camera_drag_mode = camera_mode
-                if camera_mode == 'pan':
-                    model_item.begin_camera_pan(event.position())
-                elif camera_mode == 'orbit':
-                    model_item.begin_camera_drag(event.position())
-                else:
-                    model_item.begin_camera_dolly(event.position())
+            self._model_camera_drag_mode = camera_mode
+            model_item.begin_f3d_nav(camera_mode, local_pos)
             self._model_camera_button = event.button()
             self.setFocus(Qt.FocusReason.MouseFocusReason)
             self.active_mode = self.MODEL_CAMERA_MODE
@@ -2350,15 +2352,10 @@ class XRefGraphicsView(MainControlsMixin,
             if is_f3d:
                 position = self.model_item_position(
                     self._model_camera_item, event.pos())
-                if mode == 'pan':
-                    self._model_camera_item.update_f3d_pan(position)
-                elif mode == 'orbit':
-                    self._model_camera_item.update_f3d_orbit(position)
-                else:
-                    self._model_camera_item.update_f3d_dolly(position)
+                self._model_camera_item.update_f3d_nav(position)
             elif mode == 'pan':
                 self._model_camera_item.update_camera_pan(event.position())
-            elif mode == 'orbit':
+            elif mode == 'rotate':
                 self._model_camera_item.update_camera_drag(event.position())
             else:
                 self._model_camera_item.update_camera_dolly(
@@ -2425,23 +2422,17 @@ class XRefGraphicsView(MainControlsMixin,
             if is_f3d:
                 position = self.model_item_position(
                     self._model_camera_item, event.pos())
-                if self._model_camera_drag_mode == 'pan':
-                    self._model_camera_item.update_f3d_pan(position)
-                elif self._model_camera_drag_mode == 'orbit':
-                    self._model_camera_item.update_f3d_orbit(position)
-                else:
-                    self._model_camera_item.update_f3d_dolly(position)
-            elif self._model_camera_drag_mode == 'pan':
-                self._model_camera_item.update_camera_pan(
-                    event.position())
-                self._model_camera_item.end_camera_drag()
-            elif self._model_camera_drag_mode == 'orbit':
-                self._model_camera_item.update_camera_drag(
-                    event.position())
-                self._model_camera_item.end_camera_drag()
+                self._model_camera_item.end_f3d_nav(position)
             else:
-                self._model_camera_item.update_camera_dolly(
-                    event.position())
+                if self._model_camera_drag_mode == 'pan':
+                    self._model_camera_item.update_camera_pan(
+                        event.position())
+                elif self._model_camera_drag_mode == 'rotate':
+                    self._model_camera_item.update_camera_drag(
+                        event.position())
+                else:
+                    self._model_camera_item.update_camera_dolly(
+                        event.position())
                 self._model_camera_item.end_camera_drag()
             self._model_camera_button = None
             self._model_camera_drag_mode = None

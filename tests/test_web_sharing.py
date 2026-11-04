@@ -47,6 +47,39 @@ def test_web_page_is_served(host_session):
         or ('XRef web board' in page and 'WebSocket' in page)
 
 
+def test_web_bridge_keeps_idle_connections_alive(host_session):
+    """Idle sockets must be kept warm, or tunnels drop them silently."""
+
+    from xref.web_bridge import WebBridge
+
+    # The keep-alive must be on for every bridge, including the one the
+    # WebRTC mirror uses, so check the class before any skip.
+    assert WebBridge.HEARTBEAT_SECONDS > 0
+    assert WebBridge.HEARTBEAT_SECONDS <= 30
+
+    bridge = getattr(host_session, 'web_bridge', None)
+    if bridge is None:
+        pytest.skip('WebRTC mirror active; the ops bridge is not running')
+    assert bridge.HEARTBEAT_SECONDS > 0
+
+
+def test_web_client_recovers_from_a_dropped_connection(host_session):
+    """The page must reconnect and drop its polling fallback."""
+
+    from xref.web_client import CLIENT_HTML
+
+    # A close resets the live flag, so the polling fallback can kick in
+    assert 'wsLive = false;' in CLIENT_HTML
+    # Reconnecting forever with a capped backoff
+    assert 'WS_MAX_BACKOFF_MS' in CLIENT_HTML
+    assert 'wsRetries < 12' not in CLIENT_HTML
+    # Half-open sockets are detected by a watchdog instead of hanging
+    assert 'startWatchdog' in CLIENT_HTML
+    assert 'WS_SILENCE_MS' in CLIENT_HTML
+    # And polling is stopped once the socket is healthy again
+    assert 'stopPolling' in CLIENT_HTML
+
+
 def test_snapshot_reaches_a_browser_client(host_session, qapp):
     link = host_session.start_web_sharing()
     if getattr(host_session, 'stream_server', None):
